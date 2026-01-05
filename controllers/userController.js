@@ -1,143 +1,171 @@
 const pool = require('../config/db');
-const bcrypt = require('bcryptjs'); // Ensure you have bcryptjs installed
+const bcrypt = require('bcryptjs');
+const { logAudit } = require('../utils/auditLogger');
 
-// --- ROBUST HELPER ---
+// --- HELPER: ID PARSING ---
 const parseId = (id) => {
-    // If id is 0, we accept it. If it's null/undefined/empty string, return null.
     if (id === undefined || id === null || id === '') return null;
     const parsed = parseInt(id, 10);
     return isNaN(parsed) ? null : parsed;
 };
 
-const hashPassword = async (password) => {
-    const salt = await bcrypt.genSalt(10);
-    return await bcrypt.hash(password, salt);
+// --- HELPER: SCOPE ENFORCER ---
+const getTargetRegion = (req, requestedRegionId) => {
+    // Super Admins can assign users to ANY region
+    if (req.user.role === 'SUPER_ADMIN') {
+        return parseId(requestedRegionId);
+    }
+    // Regional Admins are FORCED to their own region
+    return parseId(req.user.region_id);
 };
 
-// 1. GET USERS
+// 1. GET USERS (Scoped Security)
 exports.getUsers = async (req, res) => {
     try {
         let query = `
-            SELECT u.user_id, u.username, u.role, u.region_id, u.office, u.status, 
+            SELECT u.user_id, u.username, u.name, u.role, u.region_id, u.office, u.status, u.created_at,
                    r.name as region_name 
             FROM users u
             LEFT JOIN regions r ON u.region_id = r.id 
             WHERE 1=1
         `;
         let params = [];
-        
-        // Security: If not Super Admin, limit scope
-        if (req.user.role !== 'SUPER_ADMIN') {
-            query += " AND u.region_id = $1";
-            params.push(parseId(req.user.region_id));
+        let counter = 1;
+
+        // SECURITY: Regional Admins see EVERYONE in their Region (Admins & Staff)
+        if (req.user.role === 'ADMIN' || req.user.role === 'REGIONAL_ADMIN') {
+            query += ` AND u.region_id = $${counter++}`;
+            params.push(req.user.region_id);
+            // Hide Super Admins from Regional view to avoid confusion
+            query += ` AND u.role != 'SUPER_ADMIN'`;
+        }
+        // SECURITY: Staff see nobody
+        else if (req.user.role === 'STAFF') {
+             return res.status(403).json({ message: "Access Denied" });
         }
 
-        query += " ORDER BY u.created_at DESC";
+        query += " ORDER BY u.role ASC, u.name ASC"; // Admins listed first
+        
         const result = await pool.query(query, params);
         res.json(result.rows);
+
     } catch (err) {
-        console.error("Get Users Error:", err);
+        console.error("Get Users Error:", err.message);
         res.status(500).json({ message: "Server Error" });
     }
 };
 
-// 2. CREATE USER (DEBUGGED)
+// 2. CREATE USER (Auto-Link & Audit)
 exports.createUser = async (req, res) => {
     try {
-        console.log("--- [DEBUG] Create User Attempt ---");
-        console.log("Payload:", req.body);
-
-        const { username, password, role, region_id, office } = req.body;
-
-        if (!username || !password) return res.status(400).json({ message: "Missing credentials" });
-
-        // Check Duplicate
-        const check = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
-        if (check.rows.length > 0) return res.status(400).json({ message: "Username already exists" });
-
-        // --- EXPLICIT REGION LOGIC ---
-        let targetRegion = null;
-
-        // Ensure we parse the input strictly
-        const inputRegion = parseId(region_id);
-
-        if (req.user.role === 'SUPER_ADMIN') {
-            // Super Admin assigns what they selected
-            targetRegion = inputRegion;
-            console.log(`> Super Admin Action: Assigning Region ID [${targetRegion}]`);
-        } else {
-            // Others get their own region forced
-            targetRegion = parseId(req.user.region_id);
-            console.log(`> Regional Action: Forcing Region ID [${targetRegion}]`);
+        const { username, password, name, role, office, region_id } = req.body;
+        
+        if (!username || !password || !name) {
+            return res.status(400).json({ message: "Missing required fields." });
         }
 
-        const hashedPassword = await hashPassword(password);
+        // 1. Determine Scope
+        const targetRegion = getTargetRegion(req, region_id);
 
-        await pool.query(
-            `INSERT INTO users (username, password, role, region_id, office, status) 
-             VALUES ($1, $2, $3, $4, $5, 'ACTIVE')`,
-            [username, hashedPassword, role, targetRegion, office]
+        // 2. Security Check: Regional Admin Restrictions
+        if (req.user.role === 'ADMIN' || req.user.role === 'REGIONAL_ADMIN') {
+            // Can only create ADMIN (Co-Admin) or STAFF
+            if (role === 'SUPER_ADMIN') {
+                return res.status(403).json({ message: "You cannot create Super Admins." });
+            }
+        }
+
+        // 3. Check Duplicates
+        const check = await pool.query("SELECT username FROM users WHERE username = $1", [username]);
+        if (check.rows.length > 0) return res.status(400).json({ message: "Username already exists" });
+
+        // 4. Hash Password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        // 5. Insert
+        const result = await pool.query(
+            `INSERT INTO users (username, password, name, role, region_id, office, status) 
+             VALUES ($1, $2, $3, $4, $5, $6, 'Active') 
+             RETURNING user_id, username, name, role, region_id`,
+            [username, hashedPassword, name, role, targetRegion, office]
         );
 
-        console.log("--- [SUCCESS] User Created ---");
-        res.json({ message: "User Created Successfully" });
+        // 6. Log Event
+        await logAudit(req, 'ADD_USER', `Onboarded ${role} "${username}" to Region ${targetRegion}`);
+
+        res.json({ message: "User Created Successfully", user: result.rows[0] });
+
     } catch (err) {
-        console.error("[CREATE USER ERROR]", err.message);
-        res.status(500).json({ message: "Database Error: " + err.message });
+        console.error("Create User Error:", err.message);
+        res.status(500).json({ message: "Server Error" });
     }
 };
 
-// 3. UPDATE USER (DEBUGGED)
+// 3. UPDATE USER
 exports.updateUser = async (req, res) => {
     try {
         const { id } = req.params;
-        const { username, role, office, region_id, password } = req.body;
+        const { name, office, status, password, role } = req.body;
 
-        console.log(`--- [DEBUG] Update User ${id} ---`);
-        
-        let targetRegion = parseId(region_id);
-        
-        if (req.user.role !== 'SUPER_ADMIN') {
-            targetRegion = parseId(req.user.region_id);
+        // Security: Regional Admin can only touch their own region
+        if (req.user.role === 'ADMIN' || req.user.role === 'REGIONAL_ADMIN') {
+            const verify = await pool.query("SELECT region_id FROM users WHERE user_id = $1", [id]);
+            if (verify.rows.length === 0 || verify.rows[0].region_id !== req.user.region_id) {
+                return res.status(403).json({ message: "Unauthorized access." });
+            }
         }
 
-        console.log(`> Assigning Region ID: [${targetRegion}]`);
+        let query = "UPDATE users SET name = $1, office = $2, status = $3";
+        let params = [name, office, status];
+        let counter = 4;
 
-        let query = "UPDATE users SET username = $1, role = $2, office = $3, region_id = $4";
-        let params = [username, role, office, targetRegion];
-        let counter = 5;
+        // Allow Role Change
+        if (role) {
+             query += `, role = $${counter++}`;
+             params.push(role);
+        }
 
         if (password && password.trim() !== "") {
-            query += `, password = $${counter}`;
-            params.push(await hashPassword(password));
-            counter++;
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(password, salt);
+            query += `, password = $${counter++}`;
+            params.push(hashedPassword);
         }
 
         query += ` WHERE user_id = $${counter}`;
         params.push(id);
 
         await pool.query(query, params);
+        await logAudit(req, 'UPDATE_USER', `Updated User ID: ${id}`);
+        
         res.json({ message: "User Updated" });
+
     } catch (err) {
-        console.error(err);
         res.status(500).json({ message: "Server Error" });
     }
 };
 
-// 4. STATUS & DELETE
-exports.updateUserStatus = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { status } = req.body;
-        await pool.query("UPDATE users SET status = $1 WHERE user_id = $2", [status, id]);
-        res.json({ message: "Status Updated" });
-    } catch (err) { res.status(500).json({ message: "Error updating status" }); }
-};
-
+// 4. DELETE USER
 exports.deleteUser = async (req, res) => {
     try {
         const { id } = req.params;
+
+        if (req.user.role === 'ADMIN' || req.user.role === 'REGIONAL_ADMIN') {
+            const verify = await pool.query("SELECT region_id FROM users WHERE user_id = $1", [id]);
+            if (verify.rows.length === 0 || verify.rows[0].region_id !== req.user.region_id) {
+                return res.status(403).json({ message: "Unauthorized." });
+            }
+            if (parseInt(id) === req.user.id) {
+                 return res.status(400).json({ message: "You cannot delete your own account." });
+            }
+        }
+
         await pool.query("DELETE FROM users WHERE user_id = $1", [id]);
+        await logAudit(req, 'DELETE_USER', `Deleted User ID: ${id}`);
         res.json({ message: "User Deleted" });
-    } catch (err) { res.status(500).json({ message: "Error deleting user" }); }
+
+    } catch (err) {
+        res.status(500).json({ message: "Server Error" });
+    }
 };
