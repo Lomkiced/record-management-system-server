@@ -5,5 +5,6 @@ const { authenticateToken } = require('../middleware/authMiddleware');
 
 // Only Super Admins should see this, but for now we rely on the Token
 router.get('/', authenticateToken, auditController.getLogs);
+router.get('/filter', authenticateToken, auditController.filteredLogs);
 
 module.exports = router;
