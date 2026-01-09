@@ -2,12 +2,12 @@
 -- PostgreSQL database dump
 --
 
-\restrict TJc8kSctZOBLgYsa9JIkbxIXVEFSbh4dgKZMFoZOKswnkFufAXuDC8yBkd7Vjjs
+\restrict 6oFck7zdLLamsDkkWhZvgq30J0gOIX1A9FLdorFBgmJltbvqd73WyDtXKt18TQR
 
 -- Dumped from database version 18.1
 -- Dumped by pg_dump version 18.1
 
--- Started on 2026-01-08 10:34:47
+-- Started on 2026-01-09 11:45:16
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -76,7 +76,7 @@ CREATE SEQUENCE public.audit_logs_log_id_seq
 ALTER SEQUENCE public.audit_logs_log_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5128 (class 0 OID 0)
+-- TOC entry 5129 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: audit_logs_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -116,7 +116,7 @@ CREATE SEQUENCE public.codex_categories_category_id_seq
 ALTER SEQUENCE public.codex_categories_category_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5129 (class 0 OID 0)
+-- TOC entry 5130 (class 0 OID 0)
 -- Dependencies: 222
 -- Name: codex_categories_category_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -158,7 +158,7 @@ CREATE SEQUENCE public.codex_types_type_id_seq
 ALTER SEQUENCE public.codex_types_type_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5130 (class 0 OID 0)
+-- TOC entry 5131 (class 0 OID 0)
 -- Dependencies: 224
 -- Name: codex_types_type_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -197,7 +197,7 @@ CREATE SEQUENCE public.record_categories_category_id_seq
 ALTER SEQUENCE public.record_categories_category_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5131 (class 0 OID 0)
+-- TOC entry 5132 (class 0 OID 0)
 -- Dependencies: 226
 -- Name: record_categories_category_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -238,7 +238,7 @@ CREATE SEQUENCE public.record_types_type_id_seq
 ALTER SEQUENCE public.record_types_type_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5132 (class 0 OID 0)
+-- TOC entry 5133 (class 0 OID 0)
 -- Dependencies: 228
 -- Name: record_types_type_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -261,7 +261,10 @@ CREATE TABLE public.records (
     file_size bigint,
     file_type character varying(50),
     status character varying(50) DEFAULT 'Active'::character varying,
-    uploaded_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+    uploaded_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    uploaded_by integer,
+    retention_period character varying(50),
+    disposal_date date
 );
 
 
@@ -284,7 +287,7 @@ CREATE SEQUENCE public.records_record_id_seq
 ALTER SEQUENCE public.records_record_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5133 (class 0 OID 0)
+-- TOC entry 5134 (class 0 OID 0)
 -- Dependencies: 230
 -- Name: records_record_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -325,7 +328,7 @@ CREATE SEQUENCE public.regions_id_seq
 ALTER SEQUENCE public.regions_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5134 (class 0 OID 0)
+-- TOC entry 5135 (class 0 OID 0)
 -- Dependencies: 232
 -- Name: regions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -368,7 +371,7 @@ CREATE SEQUENCE public.system_settings_id_seq
 ALTER SEQUENCE public.system_settings_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5135 (class 0 OID 0)
+-- TOC entry 5136 (class 0 OID 0)
 -- Dependencies: 234
 -- Name: system_settings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -415,7 +418,7 @@ CREATE SEQUENCE public.users_user_id_seq
 ALTER SEQUENCE public.users_user_id_seq OWNER TO postgres;
 
 --
--- TOC entry 5136 (class 0 OID 0)
+-- TOC entry 5137 (class 0 OID 0)
 -- Dependencies: 236
 -- Name: users_user_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
@@ -496,7 +499,7 @@ ALTER TABLE ONLY public.users ALTER COLUMN user_id SET DEFAULT nextval('public.u
 
 
 --
--- TOC entry 5105 (class 0 OID 26549)
+-- TOC entry 5106 (class 0 OID 26549)
 -- Dependencies: 219
 -- Data for Name: audit_logs; Type: TABLE DATA; Schema: public; Owner: postgres
 --
@@ -574,11 +577,44 @@ COPY public.audit_logs (log_id, user_id, username, action, details, ip_address, 
 70	\N	Nerve	LOGIN_SUCCESS	User Nerve logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 10:13:13.519585	\N
 71	\N	admin	LOGIN_SUCCESS	User admin logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 10:13:50.602701	\N
 72	\N	Ced	LOGIN_SUCCESS	User Ced logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 10:15:07.917499	\N
+73	\N	admin	LOGIN_SUCCESS	User admin logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 10:49:52.752991	\N
+74	\N	Ced	LOGIN_SUCCESS	User Ced logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 10:50:35.668731	\N
+75	\N	Mike	LOGIN_SUCCESS	User Mike logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 10:51:05.420251	\N
+76	\N	Ced	LOGIN_SUCCESS	User Ced logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 10:51:19.612418	\N
+77	\N	Mike	LOGIN_SUCCESS	User Mike logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 10:51:59.400004	\N
+78	\N	admin	LOGIN_SUCCESS	User admin logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 10:53:37.521154	\N
+79	\N	Ced	LOGIN_SUCCESS	User Ced logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:06:30.756998	\N
+80	\N	Mike	LOGIN_SUCCESS	User Mike logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:13:52.863572	\N
+81	\N	admin	LOGIN_SUCCESS	User admin logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:14:22.803326	\N
+82	\N	Mike	LOGIN_SUCCESS	User Mike logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:15:14.957309	\N
+83	\N	admin	LOGIN_SUCCESS	User admin logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:17:10.095276	\N
+84	\N	Mike	LOGIN_SUCCESS	User Mike logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:17:55.267706	\N
+85	\N	Mike	LOGIN_SUCCESS	User Mike logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:34:13.969502	\N
+86	\N	admin	LOGIN_SUCCESS	User admin logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:39:49.98711	\N
+87	\N	Ced	LOGIN_SUCCESS	User Ced logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:40:00.196682	\N
+88	\N	Mike	LOGIN_SUCCESS	User Mike logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:40:17.641114	\N
+89	\N	admin	LOGIN_SUCCESS	User admin logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:40:35.290764	\N
+90	\N	admin	LOGIN_SUCCESS	User admin logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:41:16.307192	\N
+91	\N	Mike	LOGIN_SUCCESS	User Mike logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:41:25.558565	\N
+92	\N	Ced	LOGIN_SUCCESS	User Ced logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 13:50:10.333756	\N
+93	\N	admin	LOGIN_SUCCESS	User admin logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:01:42.562486	\N
+94	\N	Ced	LOGIN_SUCCESS	User Ced logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:02:14.393703	\N
+95	\N	Mike	LOGIN_SUCCESS	User Mike logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:12:41.116769	\N
+96	\N	Ced	LOGIN_SUCCESS	User Ced logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:17:52.73682	\N
+97	\N	Nerve	LOGIN_SUCCESS	User Nerve logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:19:48.471459	\N
+98	\N	Ced	LOGIN_SUCCESS	User Ced logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:20:31.587512	\N
+99	\N	Nerve	LOGIN_SUCCESS	User Nerve logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:20:55.523889	\N
+100	\N	Vincent	LOGIN_SUCCESS	User Vincent logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:22:00.950415	\N
+101	\N	admin	LOGIN_SUCCESS	User admin logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:22:21.329579	\N
+102	\N	mc	LOGIN_SUCCESS	User mc logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:24:18.413675	\N
+103	\N	mc	LOGIN_SUCCESS	User mc logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:56:53.636823	\N
+104	\N	Nerve	LOGIN_SUCCESS	User Nerve logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-08 14:57:08.180017	\N
+105	\N	mc	LOGIN_SUCCESS	User mc logged in securely.	::1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0	2026-01-09 08:14:56.519436	\N
 \.
 
 
 --
--- TOC entry 5107 (class 0 OID 26558)
+-- TOC entry 5108 (class 0 OID 26558)
 -- Dependencies: 221
 -- Data for Name: codex_categories; Type: TABLE DATA; Schema: public; Owner: postgres
 --
@@ -590,7 +626,7 @@ COPY public.codex_categories (category_id, name, region, created_at) FROM stdin;
 
 
 --
--- TOC entry 5109 (class 0 OID 26566)
+-- TOC entry 5110 (class 0 OID 26566)
 -- Dependencies: 223
 -- Data for Name: codex_types; Type: TABLE DATA; Schema: public; Owner: postgres
 --
@@ -603,7 +639,7 @@ COPY public.codex_types (type_id, category_id, type_name, retention_period, regi
 
 
 --
--- TOC entry 5111 (class 0 OID 26574)
+-- TOC entry 5112 (class 0 OID 26574)
 -- Dependencies: 225
 -- Data for Name: record_categories; Type: TABLE DATA; Schema: public; Owner: postgres
 --
@@ -621,7 +657,7 @@ COPY public.record_categories (category_id, name, description) FROM stdin;
 
 
 --
--- TOC entry 5113 (class 0 OID 26582)
+-- TOC entry 5114 (class 0 OID 26582)
 -- Dependencies: 227
 -- Data for Name: record_types; Type: TABLE DATA; Schema: public; Owner: postgres
 --
@@ -640,20 +676,26 @@ COPY public.record_types (type_id, category_id, type_name, retention_period, des
 
 
 --
--- TOC entry 5115 (class 0 OID 26591)
+-- TOC entry 5116 (class 0 OID 26591)
 -- Dependencies: 229
 -- Data for Name: records; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
-COPY public.records (record_id, title, region_id, category, classification_rule, file_path, file_size, file_type, status, uploaded_at) FROM stdin;
-1	Rich-Dad-Poor-Dad	1	Administrative and Management Records	Administrative Test 1	file-1767415969514-836425161.pdf	11863018	application/pdf	Active	2026-01-03 12:52:49.635512
-2	Rich-Dad-Poor-Dad	7	Budget Records	Budget Record Test 1	file-1767424263164-842845210.pdf	11863018	application/pdf	Active	2026-01-03 15:11:03.388216
-3	Rich-Dad-Poor-Dad	2	Administrative and Management Records	Management Test 1	file-1767424551161-871397025.pdf	11863018	application/pdf	Active	2026-01-03 15:15:51.39668
+COPY public.records (record_id, title, region_id, category, classification_rule, file_path, file_size, file_type, status, uploaded_at, uploaded_by, retention_period, disposal_date) FROM stdin;
+1	Rich-Dad-Poor-Dad	1	Administrative and Management Records	Administrative Test 1	file-1767415969514-836425161.pdf	11863018	application/pdf	Active	2026-01-03 12:52:49.635512	\N	Permanent	\N
+2	Rich-Dad-Poor-Dad	7	Budget Records	Budget Record Test 1	file-1767424263164-842845210.pdf	11863018	application/pdf	Active	2026-01-03 15:11:03.388216	\N	Permanent	\N
+3	Rich-Dad-Poor-Dad	2	Administrative and Management Records	Management Test 1	file-1767424551161-871397025.pdf	11863018	application/pdf	Active	2026-01-03 15:15:51.39668	\N	Permanent	\N
+4	Rich-Dad-Poor-Dad	7	Administrative and Management Records	Administrative Test 1	file-1767840754378-646413386.pdf	11863018	application/pdf	Active	2026-01-08 10:52:34.541904	\N	Permanent	\N
+5	TEST 1.2	7	Administrative and Management Records	Administrative Test 1	file-1767840793555-936649007.pdf	11863018	application/pdf	Active	2026-01-08 10:53:13.727659	\N	Permanent	\N
+6	Final Test 1	\N	Administrative and Management Records	Administrative Test 1	file-1767849372777-83730504.pdf	11863018	application/pdf	Active	2026-01-08 13:16:12.929099	\N	Permanent	\N
+7	Final Test 1	\N	Administrative and Management Records	Administrative Test 1	file-1767849874556-598733472.pdf	11863018	application/pdf	Active	2026-01-08 13:24:34.635241	\N	Permanent	\N
+8	FINAL TEST 	7	Administrative and Management Records	Administrative Test 1	file-1767852084828-480728163.pdf	11863018	application/pdf	Active	2026-01-08 14:01:24.949414	\N	5 years	2031-01-08
+9	FINAL TEST 2	7	Budget Records	Budget Record Test 1	file-1767852644460-245689381.pdf	11863018	application/pdf	Active	2026-01-08 14:10:44.618994	\N	7 years	2033-01-08
 \.
 
 
 --
--- TOC entry 5117 (class 0 OID 26601)
+-- TOC entry 5118 (class 0 OID 26601)
 -- Dependencies: 231
 -- Data for Name: regions; Type: TABLE DATA; Schema: public; Owner: postgres
 --
@@ -670,7 +712,7 @@ COPY public.regions (id, name, code, address, status) FROM stdin;
 
 
 --
--- TOC entry 5119 (class 0 OID 26609)
+-- TOC entry 5120 (class 0 OID 26609)
 -- Dependencies: 233
 -- Data for Name: system_settings; Type: TABLE DATA; Schema: public; Owner: postgres
 --
@@ -681,30 +723,29 @@ COPY public.system_settings (id, system_name, org_name, logo_url, login_bg_url, 
 
 
 --
--- TOC entry 5121 (class 0 OID 26620)
+-- TOC entry 5122 (class 0 OID 26620)
 -- Dependencies: 235
 -- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: postgres
 --
 
 COPY public.users (user_id, username, password, role, region_id, office, status, full_name, email, created_at, name) FROM stdin;
-1	admin	password123	SUPER_ADMIN	1	Central Office	ACTIVE	System Administrator	admin@dost.gov.ph	2026-01-03 12:37:26.178718	admin
-2	Ced	$2b$10$lsD70XhXLG1hdS/aUXuWFe0.nUEcNrhlW.sEZHZBh8nfZGltnzLWy	REGIONAL_ADMIN	7	Admin	ACTIVE	\N	\N	2026-01-03 14:06:59.245457	Ced
-3	Mike	$2b$10$UszF5idGuedq7H8IIapL9OHcgSgYnCq.HZj.n5ZS3ydh8Kqik0p5e	STAFF	7	Staff	ACTIVE	\N	\N	2026-01-03 14:08:28.031321	Mike
 4	Nerve	$2b$10$rGoAB/KZc2qD6UuWmpyEkewGIUoq9hMSoTaxwr1ssV1tSdX.dZS9K	ADMIN	2	NCR Admin	Active	\N	\N	2026-01-08 10:12:56.859415	Nerve Ferrer
+5	Vincent	$2b$10$0x6NUEJ2RWDcZ2IxbyJVrOMXWE0/ZcfeCxY3auJL9Q9GJ9nyap7b2	STAFF	2	NCR Staff	Active	\N	\N	2026-01-08 14:21:48.220677	John Vincent Joaquin
+6	mc	$2b$10$9bhVcMzA3.lrd5cSL729heme6dlnW4HauZomw0yMzNZNAyVJazHTy	SUPER_ADMIN	1	Super Admin 1	Active	\N	\N	2026-01-08 14:23:08.690901	Mike Cedrick Danocup
 \.
 
 
 --
--- TOC entry 5137 (class 0 OID 0)
+-- TOC entry 5138 (class 0 OID 0)
 -- Dependencies: 220
 -- Name: audit_logs_log_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.audit_logs_log_id_seq', 72, true);
+SELECT pg_catalog.setval('public.audit_logs_log_id_seq', 105, true);
 
 
 --
--- TOC entry 5138 (class 0 OID 0)
+-- TOC entry 5139 (class 0 OID 0)
 -- Dependencies: 222
 -- Name: codex_categories_category_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
@@ -713,7 +754,7 @@ SELECT pg_catalog.setval('public.codex_categories_category_id_seq', 14, true);
 
 
 --
--- TOC entry 5139 (class 0 OID 0)
+-- TOC entry 5140 (class 0 OID 0)
 -- Dependencies: 224
 -- Name: codex_types_type_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
@@ -722,7 +763,7 @@ SELECT pg_catalog.setval('public.codex_types_type_id_seq', 8, true);
 
 
 --
--- TOC entry 5140 (class 0 OID 0)
+-- TOC entry 5141 (class 0 OID 0)
 -- Dependencies: 226
 -- Name: record_categories_category_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
@@ -731,7 +772,7 @@ SELECT pg_catalog.setval('public.record_categories_category_id_seq', 24, true);
 
 
 --
--- TOC entry 5141 (class 0 OID 0)
+-- TOC entry 5142 (class 0 OID 0)
 -- Dependencies: 228
 -- Name: record_types_type_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
@@ -740,16 +781,16 @@ SELECT pg_catalog.setval('public.record_types_type_id_seq', 9, true);
 
 
 --
--- TOC entry 5142 (class 0 OID 0)
+-- TOC entry 5143 (class 0 OID 0)
 -- Dependencies: 230
 -- Name: records_record_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.records_record_id_seq', 3, true);
+SELECT pg_catalog.setval('public.records_record_id_seq', 9, true);
 
 
 --
--- TOC entry 5143 (class 0 OID 0)
+-- TOC entry 5144 (class 0 OID 0)
 -- Dependencies: 232
 -- Name: regions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
@@ -758,7 +799,7 @@ SELECT pg_catalog.setval('public.regions_id_seq', 7, true);
 
 
 --
--- TOC entry 5144 (class 0 OID 0)
+-- TOC entry 5145 (class 0 OID 0)
 -- Dependencies: 234
 -- Name: system_settings_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
@@ -767,12 +808,12 @@ SELECT pg_catalog.setval('public.system_settings_id_seq', 1, false);
 
 
 --
--- TOC entry 5145 (class 0 OID 0)
+-- TOC entry 5146 (class 0 OID 0)
 -- Dependencies: 236
 -- Name: users_user_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.users_user_id_seq', 4, true);
+SELECT pg_catalog.setval('public.users_user_id_seq', 6, true);
 
 
 --
@@ -943,6 +984,15 @@ ALTER TABLE ONLY public.audit_logs
 
 
 --
+-- TOC entry 4956 (class 2606 OID 26696)
+-- Name: records fk_uploader; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.records
+    ADD CONSTRAINT fk_uploader FOREIGN KEY (uploaded_by) REFERENCES public.users(user_id) ON DELETE SET NULL;
+
+
+--
 -- TOC entry 4955 (class 2606 OID 26681)
 -- Name: record_types record_types_category_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
@@ -952,7 +1002,7 @@ ALTER TABLE ONLY public.record_types
 
 
 --
--- TOC entry 4956 (class 2606 OID 26686)
+-- TOC entry 4957 (class 2606 OID 26686)
 -- Name: records records_region_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -961,7 +1011,7 @@ ALTER TABLE ONLY public.records
 
 
 --
--- TOC entry 4957 (class 2606 OID 26691)
+-- TOC entry 4958 (class 2606 OID 26691)
 -- Name: users users_region_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -969,11 +1019,11 @@ ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_region_id_fkey FOREIGN KEY (region_id) REFERENCES public.regions(id);
 
 
--- Completed on 2026-01-08 10:34:47
+-- Completed on 2026-01-09 11:45:16
 
 --
 -- PostgreSQL database dump complete
 --
 
-\unrestrict TJc8kSctZOBLgYsa9JIkbxIXVEFSbh4dgKZMFoZOKswnkFufAXuDC8yBkd7Vjjs
+\unrestrict 6oFck7zdLLamsDkkWhZvgq30J0gOIX1A9FLdorFBgmJltbvqd73WyDtXKt18TQR
 
