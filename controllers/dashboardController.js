@@ -2,26 +2,75 @@ const pool = require('../config/db');
 
 exports.getDashboardStats = async (req, res) => {
     try {
-        // 1. Run all queries in parallel for speed
-        const [userCount, recordCount, regionStats, recentLogs, storageStats] = await Promise.all([
-            pool.query("SELECT COUNT(*) FROM users"),
-            pool.query("SELECT COUNT(*) FROM records"),
-            pool.query("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'Active' THEN 1 ELSE 0 END) as active FROM regions"),
-            pool.query("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 5"),
-            pool.query("SELECT SUM(file_size) as total_bytes FROM records")
+        const { region_id } = req.query;
+
+        console.log(`[DASHBOARD] Request received for Region ID: ${region_id}`); // DEBUG LOG
+
+        let pendingQuery, activeQuery, staffQuery, recentQuery;
+        let queryParams = [];
+
+        if (region_id) {
+            // Force region_id to be an integer to avoid type mismatch
+            const regionIdInt = parseInt(region_id); 
+            queryParams = [regionIdInt];
+
+            // 1. Count "Pending Approvals" (Flexible check for Pending or Review)
+            pendingQuery = pool.query(
+                `SELECT COUNT(*) FROM records 
+                 WHERE region_id = $1 
+                 AND (status ILIKE 'Pending' OR status ILIKE 'Review')`, 
+                queryParams
+            );
+
+            // 2. Count "Active Projects" (Flexible check for 'Active', 'active', 'ACTIVE')
+            activeQuery = pool.query(
+                `SELECT COUNT(*) FROM records 
+                 WHERE region_id = $1 
+                 AND status ILIKE 'Active'`,
+                queryParams
+            );
+
+            // 3. Count "Staff Online" (Flexible check for Role and Status)
+            staffQuery = pool.query(
+                `SELECT COUNT(*) FROM users 
+                 WHERE region_id = $1 
+                 AND role ILIKE 'STAFF' 
+                 AND status ILIKE 'ACTIVE'`,
+                queryParams
+            );
+
+            // 4. Get Recent Submissions
+            recentQuery = pool.query(
+                `SELECT title, uploaded_at, status FROM records 
+                 WHERE region_id = $1 
+                 ORDER BY uploaded_at DESC LIMIT 3`,
+                queryParams
+            );
+
+        } else {
+            // Global Fallback
+            pendingQuery = pool.query("SELECT COUNT(*) FROM records WHERE status ILIKE 'Pending'");
+            activeQuery = pool.query("SELECT COUNT(*) FROM records WHERE status ILIKE 'Active'");
+            staffQuery = pool.query("SELECT COUNT(*) FROM users WHERE role ILIKE 'STAFF'");
+            recentQuery = pool.query("SELECT title, uploaded_at, status FROM records ORDER BY uploaded_at DESC LIMIT 3");
+        }
+
+        // Execute all queries
+        const [pendingRes, activeRes, staffRes, recentRes] = await Promise.all([
+            pendingQuery,
+            activeQuery,
+            staffQuery,
+            recentQuery
         ]);
 
-        // 2. Format Data
+        // Log results to terminal so you can verify data exists
+        console.log(`[DEBUG] Found: ${activeRes.rows[0].count} Active Projects, ${staffRes.rows[0].count} Staff.`);
+
         const stats = {
-            users: parseInt(userCount.rows[0].count),
-            records: parseInt(recordCount.rows[0].count),
-            regions: {
-                total: parseInt(regionStats.rows[0].total),
-                active: parseInt(regionStats.rows[0].active),
-                inactive: parseInt(regionStats.rows[0].total) - parseInt(regionStats.rows[0].active)
-            },
-            storage: parseInt(storageStats.rows[0].total_bytes) || 0,
-            recent_activity: recentLogs.rows
+            pendingApprovals: parseInt(pendingRes.rows[0].count),
+            activeProjects: parseInt(activeRes.rows[0].count),
+            staffOnline: parseInt(staffRes.rows[0].count),
+            recent_activity: recentRes.rows
         };
 
         res.json(stats);
