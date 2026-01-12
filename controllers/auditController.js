@@ -1,51 +1,52 @@
 const pool = require('../config/db');
 
-exports.getLogs = async (req, res) => {
+/**
+ * * FILTERED LOGS: Returns filtered logs based on user role level and region
+ */
+exports.filteredLogs = async (req, res) => {
     try {
-        // Fetch last 100 logs (In production, you'd use pagination)
-        const query = `
-            SELECT * FROM audit_logs 
-            ORDER BY created_at DESC 
-            LIMIT 100
+        const { role, region_id } = req.user;
+        const { region_filter } = req.query; // Allow Super Admin to filter via query param
+
+        if (role === 'STAFF') {
+            return res.status(403).json({ message: "Access Denied." });
+        }
+
+        // JOIN with regions table to get the Region Name for the UI
+        let query = `
+            SELECT a.*, r.name as region_name 
+            FROM audit_logs a
+            LEFT JOIN regions r ON a.region_id = r.id
+            WHERE 1=1
         `;
         
-        const { rows } = await pool.query(query);
-        res.json(rows);
-    } catch (err) {
-        console.error("Fetch Audit Error:", err.message);
-        res.status(500).json({ message: "Server Error" });
+        const queryParams = [];
+        let counter = 1;
+
+        // --- SECURITY: REGIONAL ADMIN LOCK ---
+        if (role === 'REGIONAL_ADMIN' || role === 'ADMIN') {
+            query += ` AND a.region_id = $${counter++}`;
+            queryParams.push(region_id);
+        }
+        
+        // --- OPTIONAL: SUPER ADMIN FILTER ---
+        // If Super Admin selects a specific region in the dropdown
+        else if (role === 'SUPER_ADMIN' && region_filter && region_filter !== 'ALL') {
+            query += ` AND a.region_id = $${counter++}`;
+            queryParams.push(region_filter);
+        }
+
+        // Sort by newest first
+        query += ` ORDER BY a.created_at DESC LIMIT 500`;
+        
+        const { rows } = await pool.query(query, queryParams);
+        res.status(200).json(rows);
+
+    } catch (error) {
+        console.error("Error in Audit Controller: ", error.message);
+        res.status(500).json({ message: "Server Error fetching logs." });
     }
 };
 
-/**
- * * FILTERED LOGS: Returns filtered logs based on user role level and region
- * @param {*} req 
- * @param {*} res 
- */
-exports.filteredLogs = async (req,res) => {
-    try {
-        const {role, region_id} = req.user;
-
-        if (role === 'STAFF') {
-            return res.status(403).json({message: "Access Denied."})
-        }
-
-        let query = `SELECT * FROM audit_logs`;
-        const queryParams = [];
-
-        //* Filter logic
-        if (role === 'REGIONAL_ADMIN') {
-            query += ` WHERE region_id = $1`;
-            queryParams.push(region_id);
-        }
-        // filter to latest logs
-        query += ` ORDER BY created_at DESC`;
-        
-        //* Execute query
-        const {rows} = await pool.query(query, queryParams);
-        res.status(200).json(rows)
-    } catch (error) {
-        console.error("Error in Regional Logs Controller: ", error.message);
-        res.status(500).json({message: "Error in Filtered Logs Controller."})
-    }
-}
+// Keep the old basic one for backward compatibility if needed, or redirect it
+exports.getLogs = exports.filteredLogs;
