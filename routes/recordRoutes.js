@@ -7,10 +7,15 @@ const upload = require('../middleware/upload');
 router.post('/', authenticateToken, upload.single('file'), recordController.createRecord);
 router.get('/', authenticateToken, recordController.getRecords);
 
-// NEW: Verification Route
+// --- SECURE DOWNLOAD ROUTES ---
+// 1. Verify Password & Get Token
 router.post('/:id/verify', authenticateToken, recordController.verifyRecordAccess);
 
-// ... (keep other routes)
+// 2. Stream File (Uses Token for access)
+// Note: We don't use 'authenticateToken' here because the image loads in an <iframe> or new tab
+// The security is inside the 'token' query parameter.
+router.get('/download/:filename', recordController.streamFile);
+
 router.put('/:id', authenticateToken, recordController.updateRecord);
 router.delete('/:id', authenticateToken, recordController.deleteRecord);
 router.patch('/:id/archive', authenticateToken, recordController.archiveRecord);

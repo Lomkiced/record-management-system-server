@@ -39,7 +39,9 @@ app.use((req, res, next) => {
 
 // --- 3. STATIC FILES (File Cabinet) ---
 const uploadDir = path.join(__dirname, 'uploads');
-app.use('/uploads', express.static(uploadDir));
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 // --- 4. API ROUTES (The Pathways) ---
 app.use('/api/auth', authRoutes);         // Login & Identity
