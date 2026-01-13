@@ -27,7 +27,6 @@ exports.createRecord = async (req, res) => {
     try {
         const { title, region_id, category_name, classification_rule, retention_period, is_restricted, file_password } = req.body;
         
-        // Region Logic
         let targetRegion = null;
         if (req.user.role === 'SUPER_ADMIN') {
             targetRegion = parseId(region_id);
@@ -39,7 +38,6 @@ exports.createRecord = async (req, res) => {
         if (!targetRegion && req.user.role !== 'SUPER_ADMIN') return res.status(400).json({ message: "No assigned region." });
         if (!req.file) return res.status(400).json({ message: "No file uploaded." });
 
-        // Security Logic
         const restricted = is_restricted === 'true'; 
         let hashedPassword = null;
         if (restricted) {
@@ -120,7 +118,7 @@ exports.getRecords = async (req, res) => {
     }
 };
 
-// --- 3. VERIFY PASSWORD & ISSUE TOKEN (For Restricted Files) ---
+// --- 3. VERIFY & TOKEN ---
 exports.verifyRecordAccess = async (req, res) => {
     try {
         const { id } = req.params;
@@ -131,7 +129,6 @@ exports.verifyRecordAccess = async (req, res) => {
         
         const record = result.rows[0];
 
-        // Only check password if restricted
         if (record.is_restricted) {
             const isMatch = await bcrypt.compare(password, record.file_password);
             if (!isMatch) {
@@ -140,9 +137,7 @@ exports.verifyRecordAccess = async (req, res) => {
             }
         }
 
-        // Issue Access Token
         const access_token = jwt.sign({ file_path: record.file_path }, JWT_SECRET, { expiresIn: '5m' });
-
         await logAudit(req, 'ACCESS_GRANTED', `Unlocked Record ID: ${id}`);
         res.json({ success: true, access_token });
 
@@ -151,22 +146,19 @@ exports.verifyRecordAccess = async (req, res) => {
     }
 };
 
-// --- 4. SECURE STREAM (The Gatekeeper) ---
+// --- 4. STREAM ---
 exports.streamFile = async (req, res) => {
     const { filename } = req.params;
-    const { token } = req.query; // Token passed via URL
+    const { token } = req.query;
 
     try {
-        // A. Fetch Metadata
         const result = await pool.query("SELECT is_restricted, file_type FROM records WHERE file_path = $1", [filename]);
         
         if (result.rows.length === 0) return res.status(404).send("File record not found.");
         
         const { is_restricted, file_type } = result.rows[0];
 
-        // B. Enforce Security
         if (is_restricted) {
-            // RESTRICTED: Must have valid token
             if (!token) return res.status(403).send("Access Denied: Restricted Content.");
             try {
                 const decoded = jwt.verify(token, JWT_SECRET);
@@ -175,13 +167,11 @@ exports.streamFile = async (req, res) => {
                 return res.status(403).send("Session Expired or Invalid Token.");
             }
         }
-        // UNRESTRICTED: No token needed, proceed to stream.
 
-        // C. Stream File
         const filePath = path.join(__dirname, '../uploads', filename);
         if (fs.existsSync(filePath)) {
             res.setHeader('Content-Type', file_type || 'application/pdf'); 
-            res.setHeader('Content-Disposition', 'inline'); // Forces browser to display it
+            res.setHeader('Content-Disposition', 'inline'); 
             const fileStream = fs.createReadStream(filePath);
             fileStream.pipe(res);
         } else {
@@ -226,14 +216,24 @@ exports.restoreRecord = async (req, res) => {
     } catch (err) { res.status(500).json({ message: "Restore Failed" }); }
 };
 
+// --- UPDATE RECORD (FIXED) ---
 exports.updateRecord = async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, region_id, category_name, classification_rule } = req.body;
+        const { title, region_id, category_name, classification_rule, retention_period } = req.body;
+        
+        // Recalculate disposal date on update
+        const disposalDate = calculateDisposalDate(retention_period);
+
         await pool.query(
-            "UPDATE records SET title = $1, region_id = $2, category = $3, classification_rule = $4 WHERE record_id = $5",
-            [title, parseId(region_id), category_name, classification_rule, id]
+            "UPDATE records SET title = $1, region_id = $2, category = $3, classification_rule = $4, retention_period = $5, disposal_date = $6 WHERE record_id = $7",
+            [title, parseId(region_id), category_name, classification_rule, retention_period, disposalDate, id]
         );
+        
+        await logAudit(req, 'UPDATE_RECORD', `Updated metadata for "${title}"`);
         res.json({ message: "Updated" });
-    } catch (err) { res.status(500).json({ message: "Update Failed" }); }
+    } catch (err) {
+        console.error("Update Error:", err);
+        res.status(500).json({ message: "Update Failed" }); 
+    }
 };
