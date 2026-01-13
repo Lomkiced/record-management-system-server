@@ -1,13 +1,13 @@
 const pool = require('../config/db');
 const fs = require('fs');
 const path = require('path');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken'); // Needed for Access Tokens
+const bcrypt = require('bcryptjs'); // Required for security
+const jwt = require('jsonwebtoken'); // Required for access tokens
 const { logAudit } = require('../utils/auditLogger');
 
 const JWT_SECRET = process.env.JWT_SECRET || "dost_secret_key_2025";
 
-// Helper: Calculate Date
+// --- HELPERS ---
 const calculateDisposalDate = (period) => {
     if (!period || typeof period !== 'string') return null;
     const cleanPeriod = period.toLowerCase().trim();
@@ -22,11 +22,14 @@ const calculateDisposalDate = (period) => {
 
 const parseId = (id) => (id === undefined || id === null || id === '') ? null : parseInt(id, 10);
 
-// 1. UPLOAD RECORD
+// --- 1. UPLOAD RECORD ---
 exports.createRecord = async (req, res) => {
     try {
+        console.log(`[UPLOAD] User: ${req.user.username}`);
+        
         const { title, region_id, category_name, classification_rule, retention_period, is_restricted, file_password } = req.body;
         
+        // Resolve Region
         let targetRegion = null;
         if (req.user.role === 'SUPER_ADMIN') {
             targetRegion = parseId(region_id);
@@ -35,12 +38,16 @@ exports.createRecord = async (req, res) => {
             targetRegion = userCheck.rows[0]?.region_id;
         }
 
-        if (!targetRegion && req.user.role !== 'SUPER_ADMIN') return res.status(400).json({ message: "No assigned region." });
+        if (!targetRegion && req.user.role !== 'SUPER_ADMIN') {
+            return res.status(400).json({ message: "No assigned region." });
+        }
+
         if (!req.file) return res.status(400).json({ message: "No file uploaded." });
 
-        // Security Handling
-        const restricted = is_restricted === 'true'; 
+        // --- SECURITY HANDLING ---
+        const restricted = is_restricted === 'true'; // FormData sends boolean as string
         let hashedPassword = null;
+        
         if (restricted) {
             if (!file_password) return res.status(400).json({ message: "Password required for restricted files." });
             hashedPassword = await bcrypt.hash(file_password, 10);
@@ -58,10 +65,12 @@ exports.createRecord = async (req, res) => {
         const values = [
             title, targetRegion, category_name, classification_rule, retention_period, 
             disposalDate, req.file.filename, req.file.size, req.file.mimetype, 
-            'Active', req.user.id, restricted, hashedPassword
+            'Active', req.user.id,
+            restricted, hashedPassword
         ];
 
         const { rows } = await pool.query(sql, values);
+        
         await logAudit(req, 'UPLOAD_RECORD', `Uploaded "${title}" (Restricted: ${restricted})`);
         res.status(201).json({ message: "Saved", record_id: rows[0].record_id });
 
@@ -71,7 +80,7 @@ exports.createRecord = async (req, res) => {
     }
 };
 
-// 2. GET RECORDS
+// --- 2. GET RECORDS ---
 exports.getRecords = async (req, res) => {
     try {
         const { page = 1, limit = 10, search = '', category, status, region } = req.query;
@@ -115,17 +124,19 @@ exports.getRecords = async (req, res) => {
         res.json({ data: rows });
 
     } catch (err) {
+        console.error("Fetch Error:", err.message);
         res.status(500).json({ message: "Server Error" });
     }
 };
 
-// 3. VERIFY PASSWORD & ISSUE TOKEN
+// --- 3. VERIFY PASSWORD & ISSUE TOKEN ---
 exports.verifyRecordAccess = async (req, res) => {
     try {
         const { id } = req.params;
         const { password } = req.body;
 
         const result = await pool.query("SELECT file_path, file_password, is_restricted FROM records WHERE record_id = $1", [id]);
+        
         if (result.rows.length === 0) return res.status(404).json({ message: "File not found" });
         
         const record = result.rows[0];
@@ -134,15 +145,15 @@ exports.verifyRecordAccess = async (req, res) => {
         if (record.is_restricted) {
             const isMatch = await bcrypt.compare(password, record.file_password);
             if (!isMatch) {
-                await logAudit(req, 'ACCESS_DENIED', `Failed password for Record ID: ${id}`);
+                await logAudit(req, 'ACCESS_DENIED', `Failed password attempt for Record ID: ${id}`);
                 return res.status(401).json({ success: false, message: "Incorrect Password" });
             }
         }
 
         // ISSUE ONE-TIME ACCESS TOKEN (Valid for 5 minutes)
-        // This token allows the frontend to download the file securely
+        // This token allows the frontend to stream the file securely
         const access_token = jwt.sign(
-            { file_path: record.file_path, purpose: 'FILE_ACCESS' }, 
+            { file_path: record.file_path }, 
             JWT_SECRET, 
             { expiresIn: '5m' }
         );
@@ -151,29 +162,34 @@ exports.verifyRecordAccess = async (req, res) => {
         res.json({ success: true, access_token });
 
     } catch (err) {
+        console.error("Verification Error:", err);
         res.status(500).json({ message: "Server Error" });
     }
 };
 
-// 4. SECURE STREAM (The Gatekeeper)
-// This endpoint replaces the static folder
+// --- 4. SECURE STREAM (SMART GATEKEEPER) ---
 exports.streamFile = async (req, res) => {
     const { filename } = req.params;
-    const { token } = req.query; // Token passed via URL
+    const { token } = req.query; // Token passed via URL query param
 
     try {
-        // 1. Check DB status
-        const result = await pool.query("SELECT is_restricted FROM records WHERE file_path = $1", [filename]);
+        // 1. Fetch File Metadata from DB (Check restriction & file type)
+        const result = await pool.query(
+            "SELECT is_restricted, file_type FROM records WHERE file_path = $1", 
+            [filename]
+        );
+        
+        // If file record doesn't exist in DB, block access
         if (result.rows.length === 0) return res.status(404).send("File record not found.");
         
-        const isRestricted = result.rows[0].is_restricted;
+        const { is_restricted, file_type } = result.rows[0];
 
-        // 2. Enforce Security
-        if (isRestricted) {
+        // 2. Enforce Restriction Logic
+        if (is_restricted) {
             if (!token) return res.status(403).send("Access Denied: Restricted Content.");
             
-            // Verify Token
             try {
+                // Verify the token issued by verifyRecordAccess
                 const decoded = jwt.verify(token, JWT_SECRET);
                 if (decoded.file_path !== filename) throw new Error("Token mismatch");
             } catch (e) {
@@ -181,10 +197,19 @@ exports.streamFile = async (req, res) => {
             }
         }
 
-        // 3. Stream File
+        // 3. Stream the File with Correct Headers
         const filePath = path.join(__dirname, '../uploads', filename);
+        
         if (fs.existsSync(filePath)) {
-            res.sendFile(filePath);
+            // Set Content-Type dynamically based on DB record (e.g., 'application/pdf', 'image/png')
+            // Fallback to 'application/pdf' if undefined
+            res.setHeader('Content-Type', file_type || 'application/pdf'); 
+            
+            // 'inline' tells browser to display it inside the window/iframe
+            res.setHeader('Content-Disposition', 'inline'); 
+            
+            const fileStream = fs.createReadStream(filePath);
+            fileStream.pipe(res);
         } else {
             res.status(404).send("File missing from storage.");
         }
@@ -195,6 +220,8 @@ exports.streamFile = async (req, res) => {
     }
 };
 
+// --- CRUD OPERATIONS ---
+
 exports.deleteRecord = async (req, res) => {
     try {
         const { id } = req.params;
@@ -202,12 +229,21 @@ exports.deleteRecord = async (req, res) => {
         if (fileData.rows.length > 0) {
             const { title, file_path } = fileData.rows[0];
             const filePath = path.join(__dirname, '../uploads', file_path);
-            if (fs.existsSync(filePath)) { fs.unlinkSync(filePath); }
+            
+            // Delete physical file
+            if (fs.existsSync(filePath)) { 
+                fs.unlinkSync(filePath); 
+            }
+            
             await pool.query("DELETE FROM records WHERE record_id = $1", [id]);
             await logAudit(req, 'DELETE_RECORD', `Deleted "${title}"`);
             res.json({ message: "Deleted" });
-        } else { res.status(404).json({ message: "Not found" }); }
-    } catch (err) { res.status(500).json({ message: "Delete Failed" }); }
+        } else { 
+            res.status(404).json({ message: "Not found" }); 
+        }
+    } catch (err) { 
+        res.status(500).json({ message: "Delete Failed" }); 
+    }
 };
 
 exports.archiveRecord = async (req, res) => {

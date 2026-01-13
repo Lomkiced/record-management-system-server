@@ -11,9 +11,7 @@ router.get('/', authenticateToken, recordController.getRecords);
 // 1. Verify Password & Get Token
 router.post('/:id/verify', authenticateToken, recordController.verifyRecordAccess);
 
-// 2. Stream File (Uses Token for access)
-// Note: We don't use 'authenticateToken' here because the image loads in an <iframe> or new tab
-// The security is inside the 'token' query parameter.
+// 2. Gatekeeper Route (No auth middleware needed here, token is in URL)
 router.get('/download/:filename', recordController.streamFile);
 
 router.put('/:id', authenticateToken, recordController.updateRecord);

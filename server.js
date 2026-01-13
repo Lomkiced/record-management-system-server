@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs'); 
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
@@ -18,15 +19,26 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // --- 1. SECURITY MIDDLEWARE (Professional Grade) ---
-app.use(helmet()); // Protects headers
-app.use(cors({ origin: 'http://localhost:5173', credentials: true })); // Allows Frontend
-app.use(express.json({ limit: '50mb' })); // Allows large files
+// FIX: We customize Helmet to allow Cross-Origin Embedding (for PDF Viewer)
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }, // Allows Frontend to load resources
+    contentSecurityPolicy: {
+        directives: {
+            ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+            // Allow this server to be embedded (framed) by your Frontend
+            "frame-ancestors": ["'self'", "http://localhost:5173"], 
+        },
+    },
+}));
+
+app.use(cors({ origin: 'http://localhost:5173', credentials: true })); 
+app.use(express.json({ limit: '50mb' })); 
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Rate Limiter: Prevents Brute Force Attacks on Login
+// Rate Limiter
 const loginLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10, // Limit each IP to 10 login requests per window
+    windowMs: 15 * 60 * 1000, 
+    max: 10, 
     message: "Too many login attempts, please try again later."
 });
 app.use('/api/auth/login', loginLimiter);
@@ -37,22 +49,23 @@ app.use((req, res, next) => {
     next();
 });
 
-// --- 3. STATIC FILES (File Cabinet) ---
+// --- 3. SECURE FILE STORAGE ---
+// Ensure the folder exists, but DO NOT expose it statically.
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// --- 4. API ROUTES (The Pathways) ---
-app.use('/api/auth', authRoutes);         // Login & Identity
-app.use('/api/records', recordRoutes);    // File Uploads
+// --- 4. API ROUTES ---
+app.use('/api/auth', authRoutes);
+app.use('/api/records', recordRoutes);
 app.use('/api/dashboard', dashboardRoutes); 
 app.use('/api/users', userRoutes);
 app.use('/api/codex', codexRoutes);
 app.use('/api/regions', regionRoutes);
 app.use('/api/audit', auditRoutes);
 
-// --- 5. GLOBAL ERROR HANDLER (Crash Prevention) ---
+// --- 5. GLOBAL ERROR HANDLER ---
 app.use((err, req, res, next) => {
     console.error("🔥 UNHANDLED ERROR:", err.stack);
     res.status(500).json({ message: "Internal System Failure", error: err.message });
