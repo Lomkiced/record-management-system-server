@@ -63,6 +63,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/codex', codexRoutes);
 app.use('/api/regions', regionRoutes);
 app.use('/api/audit', auditRoutes);
+app.use('/api/settings', require('./routes/settingRoutes'));
 
 // --- 6. GLOBAL ERROR HANDLER ---
 app.use((err, req, res, next) => {
