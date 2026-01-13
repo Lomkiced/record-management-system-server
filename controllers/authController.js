@@ -3,47 +3,35 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { logAudit } = require('../utils/auditLogger');
 
-const JWT_SECRET = process.env.JWT_SECRET || "dost_secret_key_2025";
+// 🔒 CRITICAL: This key MUST match the one in authMiddleware.js
+const JWT_SECRET = process.env.JWT_SECRET || "dost_secret_key_2025_secure_fix";
 
 exports.login = async (req, res) => {
     try {
         const { username, password } = req.body;
-        
-        console.log(`[LOGIN ATTEMPT] Username: ${username} | Password: ${password}`);
+        console.log(`[LOGIN] Attempt: ${username}`);
 
-        // 1. Check if username/password were actually sent
-        if (!username || !password) {
-            return res.status(400).json({ message: "Debug: Username or Password missing from request body." });
-        }
-
-        // 2. Check if user exists in DB
+        // 1. Fetch User
         const result = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
-        
-        if (result.rows.length === 0) {
-            // DEBUG MODE: Telling you the user doesn't exist
-            console.log(`[LOGIN FAILURE] User '${username}' not found in database.`);
-            return res.status(401).json({ message: `Debug: User '${username}' does not exist in the database.` });
-        }
+        if (result.rows.length === 0) return res.status(401).json({ message: "User not found" });
 
         const user = result.rows[0];
-        console.log(`[LOGIN DEBUG] Found User: ${user.username} (ID: ${user.user_id})`);
-        console.log(`[LOGIN DEBUG] Stored Password Hash: ${user.password}`);
 
-        // 3. PASSWORD CHECK (Dual Mode)
+        // 2. Check Password (Hash OR Plain Text for safety)
         const isHashMatch = await bcrypt.compare(password, user.password || "");
-        const isPlainMatch = (password === user.password); // Checks for "password123"
+        const isPlainMatch = (password === user.password);
 
         if (!isHashMatch && !isPlainMatch) {
-            console.log(`[LOGIN FAILURE] Password mismatch.`);
-            return res.status(401).json({ message: "Debug: Incorrect Password. (Hash failed & Plain text failed)" });
+            console.log(`[LOGIN] Failed: Password mismatch for ${username}`);
+            return res.status(401).json({ message: "Invalid credentials" });
         }
 
-        // 4. Check Status
+        // 3. Status Check
         if (user.status !== 'Active' && user.status !== 'ACTIVE') {
-            return res.status(403).json({ message: "Account is suspended." });
+            return res.status(403).json({ message: "Account Suspended" });
         }
 
-        // 5. Generate Token
+        // 4. Sign Token (Using the Fixed Secret)
         const token = jwt.sign(
             { 
                 user_id: user.user_id, 
@@ -55,12 +43,12 @@ exports.login = async (req, res) => {
             { expiresIn: '24h' }
         );
 
-        // 6. Log & Respond
+        // 5. Success Response
         req.user = { id: user.user_id, username: user.username, role: user.role, region_id: user.region_id };
-        await logAudit(req, 'LOGIN_SUCCESS', `User ${user.username} logged in.`);
+        await logAudit(req, 'LOGIN_SUCCESS', `User ${username} logged in.`);
 
         res.json({
-            message: "Login Successful",
+            message: "Success",
             token,
             user: {
                 id: user.user_id,
@@ -72,14 +60,15 @@ exports.login = async (req, res) => {
         });
 
     } catch (err) {
-        console.error("Login System Error:", err);
-        res.status(500).json({ message: "Server Error: " + err.message });
+        console.error("[LOGIN ERROR]", err);
+        res.status(500).json({ message: "Server Error" });
     }
 };
 
 exports.getMe = async (req, res) => {
     try {
-        const result = await pool.query("SELECT user_id, username, role, region_id, office, status FROM users WHERE user_id = $1", [req.user.user_id]);
+        // req.user comes from the middleware
+        const result = await pool.query("SELECT user_id, username, role, region_id, office FROM users WHERE user_id = $1", [req.user.user_id]);
         if (result.rows.length === 0) return res.status(404).json({ message: "User not found" });
         res.json(result.rows[0]);
     } catch (err) {
