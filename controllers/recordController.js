@@ -1,8 +1,8 @@
 const pool = require('../config/db');
 const fs = require('fs');
 const path = require('path');
-const bcrypt = require('bcryptjs'); // Required for security
-const jwt = require('jsonwebtoken'); // Required for access tokens
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const { logAudit } = require('../utils/auditLogger');
 
 const JWT_SECRET = process.env.JWT_SECRET || "dost_secret_key_2025";
@@ -25,11 +25,9 @@ const parseId = (id) => (id === undefined || id === null || id === '') ? null : 
 // --- 1. UPLOAD RECORD ---
 exports.createRecord = async (req, res) => {
     try {
-        console.log(`[UPLOAD] User: ${req.user.username}`);
-        
         const { title, region_id, category_name, classification_rule, retention_period, is_restricted, file_password } = req.body;
         
-        // Resolve Region
+        // Region Logic
         let targetRegion = null;
         if (req.user.role === 'SUPER_ADMIN') {
             targetRegion = parseId(region_id);
@@ -38,16 +36,12 @@ exports.createRecord = async (req, res) => {
             targetRegion = userCheck.rows[0]?.region_id;
         }
 
-        if (!targetRegion && req.user.role !== 'SUPER_ADMIN') {
-            return res.status(400).json({ message: "No assigned region." });
-        }
-
+        if (!targetRegion && req.user.role !== 'SUPER_ADMIN') return res.status(400).json({ message: "No assigned region." });
         if (!req.file) return res.status(400).json({ message: "No file uploaded." });
 
-        // --- SECURITY HANDLING ---
-        const restricted = is_restricted === 'true'; // FormData sends boolean as string
+        // Security Logic
+        const restricted = is_restricted === 'true'; 
         let hashedPassword = null;
-        
         if (restricted) {
             if (!file_password) return res.status(400).json({ message: "Password required for restricted files." });
             hashedPassword = await bcrypt.hash(file_password, 10);
@@ -65,12 +59,10 @@ exports.createRecord = async (req, res) => {
         const values = [
             title, targetRegion, category_name, classification_rule, retention_period, 
             disposalDate, req.file.filename, req.file.size, req.file.mimetype, 
-            'Active', req.user.id,
-            restricted, hashedPassword
+            'Active', req.user.id, restricted, hashedPassword
         ];
 
         const { rows } = await pool.query(sql, values);
-        
         await logAudit(req, 'UPLOAD_RECORD', `Uploaded "${title}" (Restricted: ${restricted})`);
         res.status(201).json({ message: "Saved", record_id: rows[0].record_id });
 
@@ -124,24 +116,22 @@ exports.getRecords = async (req, res) => {
         res.json({ data: rows });
 
     } catch (err) {
-        console.error("Fetch Error:", err.message);
         res.status(500).json({ message: "Server Error" });
     }
 };
 
-// --- 3. VERIFY PASSWORD & ISSUE TOKEN ---
+// --- 3. VERIFY PASSWORD & ISSUE TOKEN (For Restricted Files) ---
 exports.verifyRecordAccess = async (req, res) => {
     try {
         const { id } = req.params;
         const { password } = req.body;
 
         const result = await pool.query("SELECT file_path, file_password, is_restricted FROM records WHERE record_id = $1", [id]);
-        
         if (result.rows.length === 0) return res.status(404).json({ message: "File not found" });
         
         const record = result.rows[0];
 
-        // If restricted, check password
+        // Only check password if restricted
         if (record.is_restricted) {
             const isMatch = await bcrypt.compare(password, record.file_password);
             if (!isMatch) {
@@ -150,64 +140,48 @@ exports.verifyRecordAccess = async (req, res) => {
             }
         }
 
-        // ISSUE ONE-TIME ACCESS TOKEN (Valid for 5 minutes)
-        // This token allows the frontend to stream the file securely
-        const access_token = jwt.sign(
-            { file_path: record.file_path }, 
-            JWT_SECRET, 
-            { expiresIn: '5m' }
-        );
+        // Issue Access Token
+        const access_token = jwt.sign({ file_path: record.file_path }, JWT_SECRET, { expiresIn: '5m' });
 
         await logAudit(req, 'ACCESS_GRANTED', `Unlocked Record ID: ${id}`);
         res.json({ success: true, access_token });
 
     } catch (err) {
-        console.error("Verification Error:", err);
         res.status(500).json({ message: "Server Error" });
     }
 };
 
-// --- 4. SECURE STREAM (SMART GATEKEEPER) ---
+// --- 4. SECURE STREAM (The Gatekeeper) ---
 exports.streamFile = async (req, res) => {
     const { filename } = req.params;
-    const { token } = req.query; // Token passed via URL query param
+    const { token } = req.query; // Token passed via URL
 
     try {
-        // 1. Fetch File Metadata from DB (Check restriction & file type)
-        const result = await pool.query(
-            "SELECT is_restricted, file_type FROM records WHERE file_path = $1", 
-            [filename]
-        );
+        // A. Fetch Metadata
+        const result = await pool.query("SELECT is_restricted, file_type FROM records WHERE file_path = $1", [filename]);
         
-        // If file record doesn't exist in DB, block access
         if (result.rows.length === 0) return res.status(404).send("File record not found.");
         
         const { is_restricted, file_type } = result.rows[0];
 
-        // 2. Enforce Restriction Logic
+        // B. Enforce Security
         if (is_restricted) {
+            // RESTRICTED: Must have valid token
             if (!token) return res.status(403).send("Access Denied: Restricted Content.");
-            
             try {
-                // Verify the token issued by verifyRecordAccess
                 const decoded = jwt.verify(token, JWT_SECRET);
                 if (decoded.file_path !== filename) throw new Error("Token mismatch");
             } catch (e) {
                 return res.status(403).send("Session Expired or Invalid Token.");
             }
         }
+        // UNRESTRICTED: No token needed, proceed to stream.
 
-        // 3. Stream the File with Correct Headers
+        // C. Stream File
         const filePath = path.join(__dirname, '../uploads', filename);
-        
         if (fs.existsSync(filePath)) {
-            // Set Content-Type dynamically based on DB record (e.g., 'application/pdf', 'image/png')
-            // Fallback to 'application/pdf' if undefined
             res.setHeader('Content-Type', file_type || 'application/pdf'); 
-            
-            // 'inline' tells browser to display it inside the window/iframe
-            res.setHeader('Content-Disposition', 'inline'); 
-            
+            res.setHeader('Content-Disposition', 'inline'); // Forces browser to display it
             const fileStream = fs.createReadStream(filePath);
             fileStream.pipe(res);
         } else {
@@ -220,8 +194,7 @@ exports.streamFile = async (req, res) => {
     }
 };
 
-// --- CRUD OPERATIONS ---
-
+// --- CRUD ---
 exports.deleteRecord = async (req, res) => {
     try {
         const { id } = req.params;
@@ -229,21 +202,12 @@ exports.deleteRecord = async (req, res) => {
         if (fileData.rows.length > 0) {
             const { title, file_path } = fileData.rows[0];
             const filePath = path.join(__dirname, '../uploads', file_path);
-            
-            // Delete physical file
-            if (fs.existsSync(filePath)) { 
-                fs.unlinkSync(filePath); 
-            }
-            
+            if (fs.existsSync(filePath)) { fs.unlinkSync(filePath); }
             await pool.query("DELETE FROM records WHERE record_id = $1", [id]);
             await logAudit(req, 'DELETE_RECORD', `Deleted "${title}"`);
             res.json({ message: "Deleted" });
-        } else { 
-            res.status(404).json({ message: "Not found" }); 
-        }
-    } catch (err) { 
-        res.status(500).json({ message: "Delete Failed" }); 
-    }
+        } else { res.status(404).json({ message: "Not found" }); }
+    } catch (err) { res.status(500).json({ message: "Delete Failed" }); }
 };
 
 exports.archiveRecord = async (req, res) => {

@@ -18,14 +18,14 @@ const auditRoutes = require('./routes/auditRoutes');
 const app = express();
 const port = process.env.PORT || 5000;
 
-// --- 1. SECURITY MIDDLEWARE (Professional Grade) ---
-// FIX: We customize Helmet to allow Cross-Origin Embedding (for PDF Viewer)
+// --- 1. SECURITY MIDDLEWARE (The Fix) ---
+// We customize Helmet to allow the Frontend (port 5173) to display files in an iframe
 app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" }, // Allows Frontend to load resources
+    crossOriginResourcePolicy: { policy: "cross-origin" }, // Allows resources (images/pdfs) to be loaded by other origins
     contentSecurityPolicy: {
         directives: {
             ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-            // Allow this server to be embedded (framed) by your Frontend
+            // CRITICAL: Allow localhost:5173 to embed (frame) this server's content
             "frame-ancestors": ["'self'", "http://localhost:5173"], 
         },
     },
@@ -50,7 +50,8 @@ app.use((req, res, next) => {
 });
 
 // --- 3. SECURE FILE STORAGE ---
-// Ensure the folder exists, but DO NOT expose it statically.
+// Ensure folder exists, but DO NOT expose it statically.
+// Files are served via the 'streamFile' controller only.
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
