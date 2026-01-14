@@ -22,78 +22,20 @@ const calculateDisposalDate = (period) => {
 
 const parseId = (id) => (id === undefined || id === null || id === '') ? null : parseInt(id, 10);
 
-// --- 1. GET RECORDS (VISIBILITY FIX) ---
-exports.getRecords = async (req, res) => {
-    try {
-        const { page = 1, limit = 10, search = '', category, status, region } = req.query;
-        const offset = (page - 1) * limit;
-
-        // 🔒 FIX: Use 'user_id' from token, NOT 'id'
-        const currentUserId = req.user.user_id; 
-        let userRegionId = req.user.region_id;
-
-        // Double-check region for Non-Super Admins
-        if (req.user.role !== 'SUPER_ADMIN') {
-             // 🔒 FIX: Correct SQL parameter to user_id
-             const userCheck = await pool.query("SELECT region_id FROM users WHERE user_id = $1", [currentUserId]);
-             userRegionId = userCheck.rows[0]?.region_id;
-        }
-
-        let query = `
-            SELECT r.record_id, r.title, r.region_id, r.category, r.classification_rule, 
-                   r.retention_period, r.disposal_date, r.file_path, r.file_size, r.file_type, 
-                   r.status, r.uploaded_at, r.is_restricted, 
-                   reg.name as region_name, u.username as uploader_name
-            FROM records r
-            LEFT JOIN regions reg ON r.region_id = reg.id
-            LEFT JOIN users u ON r.uploaded_by = u.user_id
-            WHERE 1=1
-        `;
-        let params = [];
-        let counter = 1;
-
-        // 🔒 FILTER LOGIC
-        if (req.user.role !== 'SUPER_ADMIN') {
-            // Force filter by User's Region
-            query += ` AND r.region_id = $${counter++}`;
-            params.push(userRegionId);
-        } else if (region && region !== 'All') {
-            // Super Admin can filter manually
-            query += ` AND r.region_id = $${counter++}`;
-            params.push(parseId(region));
-        }
-
-        if (status && status !== 'All') { query += ` AND r.status = $${counter++}`; params.push(status); }
-        if (category && category !== 'All') { query += ` AND r.category = $${counter++}`; params.push(category); }
-        if (search) { query += ` AND r.title ILIKE $${counter++}`; params.push(`%${search}%`); }
-
-        query += ` ORDER BY r.uploaded_at DESC LIMIT $${counter++} OFFSET $${counter++}`;
-        params.push(limit, offset);
-
-        const { rows } = await pool.query(query, params);
-        
-        // Pagination Count
-        // (Optional: You might want a separate count query here for accurate pagination)
-        
-        res.json({ data: rows });
-
-    } catch (err) {
-        console.error("Get Records Error:", err);
-        res.status(500).json({ message: "Server Error" });
-    }
-};
-
-// --- 2. UPLOAD RECORD ---
+// --- 1. UPLOAD RECORD (FIXED) ---
 exports.createRecord = async (req, res) => {
     try {
         const { title, region_id, category_name, classification_rule, retention_period, is_restricted, file_password } = req.body;
         
+        // 🔒 IDENTITY RECOVERY: Handle both 'id' and 'user_id' token formats
+        const uploaderId = req.user.id || req.user.user_id;
+        if (!uploaderId) return res.status(401).json({ message: "User identity lost. Please relogin." });
+
         let targetRegion = null;
         if (req.user.role === 'SUPER_ADMIN') {
             targetRegion = parseId(region_id);
         } else {
-            // 🔒 FIX: Use user_id
-            const userCheck = await pool.query("SELECT region_id FROM users WHERE user_id = $1", [req.user.user_id]);
+            const userCheck = await pool.query("SELECT region_id FROM users WHERE user_id = $1", [uploaderId]);
             targetRegion = userCheck.rows[0]?.region_id;
         }
 
@@ -116,14 +58,14 @@ exports.createRecord = async (req, res) => {
             RETURNING record_id
         `;
 
-        // 🔒 FIX: Use req.user.user_id for uploader
         const values = [
             title, targetRegion, category_name, classification_rule, retention_period, 
             disposalDate, req.file.filename, req.file.size, req.file.mimetype, 
-            'Active', req.user.user_id, restricted, hashedPassword
+            'Active', uploaderId, restricted, hashedPassword
         ];
 
         const { rows } = await pool.query(sql, values);
+        
         await logAudit(req, 'UPLOAD_RECORD', `Uploaded "${title}"`);
         res.status(201).json({ message: "Saved", record_id: rows[0].record_id });
 
@@ -133,24 +75,66 @@ exports.createRecord = async (req, res) => {
     }
 };
 
-// --- 3. ARCHIVE (Must be called by the route /:id/archive) ---
+// ... (Keep existing getRecords, archiveRecord, restoreRecord, deleteRecord, updateRecord, verifyRecordAccess, streamFile) ...
+// Ensure they all use the helpers defined at the top.
+
+exports.getRecords = async (req, res) => {
+    try {
+        const { page = 1, limit = 10, search = '', category, status, region } = req.query;
+        const offset = (page - 1) * limit;
+
+        const currentUserId = req.user.id || req.user.user_id; // FIX
+        let userRegionId = req.user.region_id;
+
+        if (req.user.role !== 'SUPER_ADMIN') {
+             const userCheck = await pool.query("SELECT region_id FROM users WHERE user_id = $1", [currentUserId]);
+             userRegionId = userCheck.rows[0]?.region_id;
+        }
+
+        let query = `
+            SELECT r.record_id, r.title, r.region_id, r.category, r.classification_rule, 
+                   r.retention_period, r.disposal_date, r.file_path, r.file_size, r.file_type, 
+                   r.status, r.uploaded_at, r.is_restricted, 
+                   reg.name as region_name, u.username as uploader_name
+            FROM records r
+            LEFT JOIN regions reg ON r.region_id = reg.id
+            LEFT JOIN users u ON r.uploaded_by = u.user_id
+            WHERE 1=1
+        `;
+        let params = [];
+        let counter = 1;
+
+        if (req.user.role !== 'SUPER_ADMIN') {
+            query += ` AND r.region_id = $${counter++}`;
+            params.push(userRegionId);
+        } else if (region && region !== 'All') {
+            query += ` AND r.region_id = $${counter++}`;
+            params.push(parseId(region));
+        }
+
+        if (status && status !== 'All') { query += ` AND r.status = $${counter++}`; params.push(status); }
+        if (category && category !== 'All') { query += ` AND r.category = $${counter++}`; params.push(category); }
+        if (search) { query += ` AND r.title ILIKE $${counter++}`; params.push(`%${search}%`); }
+
+        query += ` ORDER BY r.uploaded_at DESC LIMIT $${counter++} OFFSET $${counter++}`;
+        params.push(limit, offset);
+
+        const { rows } = await pool.query(query, params);
+        res.json({ data: rows });
+
+    } catch (err) { res.status(500).json({ message: "Server Error" }); }
+};
+
 exports.archiveRecord = async (req, res) => {
     try {
         const { id } = req.params;
-        console.log(`[ARCHIVE] Processing ID: ${id}`);
-
         const result = await pool.query("UPDATE records SET status = 'Archived' WHERE record_id = $1 RETURNING title", [id]);
-
         if (result.rowCount === 0) return res.status(404).json({ message: "Record not found" });
-
         await logAudit(req, 'ARCHIVE_RECORD', `Archived "${result.rows[0].title}"`);
-        res.json({ message: "Archived successfully" });
-    } catch (err) { 
-        res.status(500).json({ message: "Archive Failed" }); 
-    }
+        res.json({ message: "Archived" });
+    } catch (err) { res.status(500).json({ message: "Archive Failed" }); }
 };
 
-// --- 4. OTHER ACTIONS ---
 exports.restoreRecord = async (req, res) => {
     try {
         const { id } = req.params;
@@ -179,7 +163,6 @@ exports.updateRecord = async (req, res) => {
         const { id } = req.params;
         const { title, region_id, category_name, classification_rule, retention_period } = req.body;
         const disposalDate = calculateDisposalDate(retention_period);
-
         await pool.query(
             "UPDATE records SET title = $1, region_id = $2, category = $3, classification_rule = $4, retention_period = $5, disposal_date = $6 WHERE record_id = $7",
             [title, parseId(region_id), category_name, classification_rule, retention_period, disposalDate, id]
@@ -189,9 +172,7 @@ exports.updateRecord = async (req, res) => {
     } catch (err) { res.status(500).json({ message: "Update Failed" }); }
 };
 
-// ... (Keep verifyRecordAccess and streamFile as is) ...
 exports.verifyRecordAccess = async (req, res) => {
-    /* ... (Logic from previous file) ... */ 
     try {
         const { id } = req.params;
         const { password } = req.body;
@@ -208,7 +189,6 @@ exports.verifyRecordAccess = async (req, res) => {
 };
 
 exports.streamFile = async (req, res) => {
-    /* ... (Logic from previous file) ... */
     const { filename } = req.params;
     const { token } = req.query;
     try {
