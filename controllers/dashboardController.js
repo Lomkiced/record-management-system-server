@@ -2,7 +2,7 @@ const pool = require('../config/db');
 
 exports.getDashboardStats = async (req, res) => {
     try {
-        const { role, region_id, id: user_id } = req.user; // Context from token
+        const { role, region_id, user_id } = req.user; // Context from token
         
         let filterClause = "";
         let params = [];
