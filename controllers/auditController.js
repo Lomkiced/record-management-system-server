@@ -6,16 +6,16 @@ exports.filteredLogs = async (req, res) => {
         const user = req.user || {};
         const role = (user.role || '').toUpperCase().trim();
         const region_id = user.region_id;
-        
+
         // 1. EXTRACT FILTERS
-        const { 
-            page = 1, 
-            limit = 20, 
-            search = '', 
-            region_filter, 
-            action_filter, 
-            start_date, 
-            end_date 
+        const {
+            page = 1,
+            limit = 20,
+            search = '',
+            region_filter,
+            action_filter,
+            start_date,
+            end_date
         } = req.query;
 
         // DEBUG: Print what the server receives (Check your VS Code Terminal)
@@ -33,15 +33,15 @@ exports.filteredLogs = async (req, res) => {
         let counter = 1;
 
         // --- SECURITY LOCKS ---
-        if (role === 'REGIONAL_ADMIN' || role === 'ADMIN') {
+        if (role === 'REGIONAL_ADMIN') {
             // Lock to Region
             whereClause += ` AND a.region_id = $${counter++}`;
             queryParams.push(region_id);
 
             // Hide Super Admin Actions
             whereClause += ` AND (u.role != 'SUPER_ADMIN' OR u.role IS NULL)`;
-        } 
-        else if (role === 'SUPER_ADMIN') {
+        }
+        else if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
             // Filter by Region (if selected and valid)
             if (region_filter && region_filter !== 'ALL') {
                 whereClause += ` AND a.region_id = $${counter++}`;
@@ -69,7 +69,7 @@ exports.filteredLogs = async (req, res) => {
         // --- FILTER: DATE RANGE ---
         if (start_date) {
             whereClause += ` AND a.created_at >= $${counter++}`;
-            queryParams.push(start_date); 
+            queryParams.push(start_date);
         }
 
         if (end_date) {

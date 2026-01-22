@@ -17,11 +17,10 @@ exports.login = async (req, res) => {
 
         const user = result.rows[0];
 
-        // 2. Check Password (Hash OR Plain Text for safety)
-        const isHashMatch = await bcrypt.compare(password, user.password || "");
-        const isPlainMatch = (password === user.password);
+        // 2. Check Password (Secure bcrypt comparison only)
+        const isPasswordValid = await bcrypt.compare(password, user.password || "");
 
-        if (!isHashMatch && !isPlainMatch) {
+        if (!isPasswordValid) {
             console.log(`[LOGIN] Failed: Password mismatch for ${username}`);
             return res.status(401).json({ message: "Invalid credentials" });
         }
@@ -33,13 +32,13 @@ exports.login = async (req, res) => {
 
         // 4. Sign Token (Using the Fixed Secret)
         const token = jwt.sign(
-            { 
-                user_id: user.user_id, 
-                role: user.role, 
-                region_id: user.region_id, 
-                username: user.username 
-            }, 
-            JWT_SECRET, 
+            {
+                user_id: user.user_id,
+                role: user.role,
+                region_id: user.region_id,
+                username: user.username
+            },
+            JWT_SECRET,
             { expiresIn: '24h' }
         );
 

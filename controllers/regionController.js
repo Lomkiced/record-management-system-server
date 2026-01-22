@@ -1,11 +1,48 @@
 const pool = require('../config/db');
 
-// 1. GET REGIONS
+// 1. GET REGIONS WITH STATS
 exports.getRegions = async (req, res) => {
     try {
-        const { rows } = await pool.query("SELECT * FROM regions ORDER BY id ASC");
+        const query = `
+            SELECT 
+                r.*,
+                COALESCE(o.office_count, 0)::integer as office_count,
+                COALESCE(rec.record_count, 0)::integer as record_count,
+                COALESCE(rec.total_storage, 0)::bigint as total_storage,
+                COALESCE(u.user_count, 0)::integer as user_count
+            FROM regions r
+            LEFT JOIN (
+                SELECT region_id::integer, COUNT(*) as office_count 
+                FROM offices WHERE status = 'Active' 
+                GROUP BY region_id
+            ) o ON r.id = o.region_id
+            LEFT JOIN (
+                SELECT region_id::integer, COUNT(*) as record_count, SUM(file_size) as total_storage
+                FROM records WHERE status = 'Active' 
+                GROUP BY region_id
+            ) rec ON r.id = rec.region_id
+            LEFT JOIN (
+                SELECT region_id::integer, COUNT(*) as user_count 
+                FROM users WHERE status = 'Active' 
+                GROUP BY region_id
+            ) u ON r.id = u.region_id
+            ORDER BY r.id ASC
+        `;
+        const { rows } = await pool.query(query);
+
+        // Debug: Log the first region's stats
+        if (rows.length > 0) {
+            console.log('[getRegions] Sample region stats:', {
+                name: rows[0].name,
+                office_count: rows[0].office_count,
+                record_count: rows[0].record_count,
+                user_count: rows[0].user_count
+            });
+        }
+
         res.json(rows);
     } catch (err) {
+        console.error("Get Regions Error:", err);
         res.status(500).json({ message: "Server Error" });
     }
 };
@@ -16,7 +53,7 @@ exports.createRegion = async (req, res) => {
         console.log("--- Creating Region ---");
         const { name, code, address, status } = req.body;
         console.log("Data Received:", req.body);
-        
+
         if (!name || !code) return res.status(400).json({ message: "Name and Code are required" });
 
         // Insert all 4 fields

@@ -10,4 +10,9 @@ const uploadFields = upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'bg',
 router.get('/', settingController.getSettings); // Public access allowed for Login page
 router.put('/', authenticateToken, uploadFields, settingController.updateSettings);
 
+// Master Password Management (Restricted Vault)
+router.get('/master-password/status', authenticateToken, settingController.getMasterPasswordStatus);
+router.post('/master-password', authenticateToken, settingController.setMasterPassword);
+router.post('/vault/verify', authenticateToken, settingController.verifyVaultAccess);
+
 module.exports = router;

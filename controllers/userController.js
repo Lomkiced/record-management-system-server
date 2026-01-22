@@ -41,11 +41,11 @@ exports.getUsers = async (req, res) => {
         }
         // SECURITY: Staff see nobody
         else if (req.user.role === 'STAFF') {
-             return res.status(403).json({ message: "Access Denied" });
+            return res.status(403).json({ message: "Access Denied" });
         }
 
         query += " ORDER BY u.role ASC, u.name ASC"; // Admins listed first
-        
+
         const result = await pool.query(query, params);
         res.json(result.rows);
 
@@ -59,7 +59,7 @@ exports.getUsers = async (req, res) => {
 exports.createUser = async (req, res) => {
     try {
         const { username, password, name, role, office, region_id } = req.body;
-        
+
         if (!username || !password || !name) {
             return res.status(400).json({ message: "Missing required fields." });
         }
@@ -122,8 +122,8 @@ exports.updateUser = async (req, res) => {
 
         // Allow Role Change
         if (role) {
-             query += `, role = $${counter++}`;
-             params.push(role);
+            query += `, role = $${counter++}`;
+            params.push(role);
         }
 
         if (password && password.trim() !== "") {
@@ -138,7 +138,7 @@ exports.updateUser = async (req, res) => {
 
         await pool.query(query, params);
         await logAudit(req, 'UPDATE_USER', `Updated User ID: ${id}`);
-        
+
         res.json({ message: "User Updated" });
 
     } catch (err) {
@@ -156,8 +156,9 @@ exports.deleteUser = async (req, res) => {
             if (verify.rows.length === 0 || verify.rows[0].region_id !== req.user.region_id) {
                 return res.status(403).json({ message: "Unauthorized." });
             }
-            if (parseInt(id) === req.user.id) {
-                 return res.status(400).json({ message: "You cannot delete your own account." });
+            const currentUserId = req.user.id || req.user.user_id;
+            if (parseInt(id) === currentUserId) {
+                return res.status(400).json({ message: "You cannot delete your own account." });
             }
         }
 
