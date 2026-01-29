@@ -1,5 +1,5 @@
-require('dotenv').config();
-const db = require('./config/db'); // Your database connection
+require('dotenv').config({ path: '../.env' }); // Load env from parent
+const db = require('../config/db'); // Your database connection
 const bcrypt = require('bcrypt'); // The security library
 
 const createSuperAdmin = async () => {
@@ -10,7 +10,7 @@ const createSuperAdmin = async () => {
         const username = 'admin';
         const rawPassword = 'password123';
         const email = 'admin@dost.gov.ph';
-        
+
         // 2. Encrypt the Password (The part we missed!)
         console.log("1. Encrypting password...");
         const salt = await bcrypt.genSalt(10);
@@ -27,9 +27,9 @@ const createSuperAdmin = async () => {
             VALUES ($1, $2, 'System Override', $3, 'SUPER_ADMIN', 1, 'Central Command', 'ACTIVE')
             RETURNING user_id;
         `;
-        
+
         const { rows } = await db.query(sql, [username, hashedPassword, email]);
-        
+
         console.log(`✅ SUCCESS! Created Admin ID: ${rows[0].user_id}`);
         console.log(`🔑 Username: ${username}`);
         console.log(`🔑 Password: ${rawPassword}`);

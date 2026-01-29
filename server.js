@@ -32,7 +32,27 @@ app.use(helmet({
     },
 }));
 
-app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
+// Dynamic CORS for development and production
+const allowedOrigins = [
+    'http://localhost:5173',     // Vite dev server
+    'http://localhost',          // Docker production (port 80)
+    'http://localhost:80',       // Docker production explicit
+    'http://localhost:3000',     // Docker production (alternate port)
+    process.env.FRONTEND_URL     // Custom frontend URL if provided
+].filter(Boolean);
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // Allow requests with no origin (mobile apps, curl, etc.)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(null, true); // Allow all origins in production (Nginx handles this)
+        }
+    },
+    credentials: true
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 

@@ -1,0 +1,24 @@
+# Dependencies
+node_modules
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+
+# Logs
+*.log
+npm-debug.log*
+
+# Backups (not needed in production image)
+backups
+
+# Uploads (mounted as volume)
+uploads
+
+# Development files
+*.md
