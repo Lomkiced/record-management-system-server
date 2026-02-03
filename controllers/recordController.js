@@ -50,7 +50,8 @@ exports.createRecord = async (req, res) => {
         if (!uploaderId) return res.status(401).json({ message: "User identity lost. Please relogin." });
 
         let targetRegion = null;
-        if (req.user.role === 'SUPER_ADMIN') {
+        // ENABLE GLOBAL UPLOAD FOR REGIONAL ADMINS (per user request)
+        if (['SUPER_ADMIN', 'ADMIN', 'REGIONAL_ADMIN'].includes(req.user.role)) {
             targetRegion = parseId(region_id);
         } else {
             const userCheck = await pool.query("SELECT region_id FROM users WHERE user_id = $1", [uploaderId]);
@@ -239,7 +240,7 @@ exports.getRecords = async (req, res) => {
                    r.retention_period, r.disposal_date, r.file_path, r.file_size, r.file_type, 
                    r.status, r.uploaded_at, r.is_restricted,
                    r.period_covered, r.volume, r.duplication, r.time_value, r.utility_value, 
-                   r.updated_at, r.created_at, r.archived_at,
+                   r.updated_at, r.archived_at,
                    reg.name as region_name, u.username as uploader_name,
                    o.name as office_name, o.code as office_code
             FROM records r
