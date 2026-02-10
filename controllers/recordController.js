@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -34,7 +35,7 @@ const calculateDisposalDate = (period) => {
     }
 
     const result = date.toISOString().split('T')[0];
-    console.log(`[DISPOSAL CALC] Input: "${period}" -> Clean: "${cleanPeriod}" -> Match: ${numberMatch ? numberMatch[0] : 'null'} -> Result: ${result}`);
+    // console.log(`[DISPOSAL CALC] Input: "${period}" -> Clean: "${cleanPeriod}" -> Match: ${numberMatch ? numberMatch[0] : 'null'} -> Result: ${result}`);
     return result;
 };
 
@@ -49,12 +50,12 @@ exports.createRecord = async (req, res) => {
             media_text, restriction_text, frequency_text, provision_text
         } = req.body;
 
-        console.log('[createRecord] Body:', JSON.stringify(req.body, null, 2)); // DEBUG LOG
-        console.log('[createRecord] File:', req.file ? req.file.originalname : 'No File'); // DEBUG LOG
+        // console.log('[createRecord] Body:', JSON.stringify(req.body, null, 2)); // DEBUG LOG
+        // console.log('[createRecord] File:', req.file ? req.file.originalname : 'No File'); // DEBUG LOG
 
 
-        // 🔒 IDENTITY RECOVERY: Handle both 'id' and 'user_id' token formats
-        const uploaderId = req.user.id || req.user.user_id;
+        // 🔒 IDENTITY RECOVERY: Standardized to user_id
+        const uploaderId = req.user.user_id;
         if (!uploaderId) return res.status(401).json({ message: "User identity lost. Please relogin." });
 
         let targetRegion = null;
@@ -102,7 +103,7 @@ exports.createRecord = async (req, res) => {
             const newPath = path.join(restrictedDir, req.file.filename);
 
             // Move the file
-            fs.renameSync(oldPath, newPath);
+            await fsPromises.rename(oldPath, newPath);
         }
 
         const { rows } = await pool.query(sql, values);
@@ -127,9 +128,9 @@ exports.getRecords = async (req, res) => {
         const offset = (page - 1) * limit;
 
         // DEBUG: Log the restricted_only value
-        console.log('[getRecords] restricted_only:', restricted_only, 'Type:', typeof restricted_only);
+        // console.log('[getRecords] restricted_only:', restricted_only, 'Type:', typeof restricted_only);
 
-        const currentUserId = req.user.id || req.user.user_id;
+        const currentUserId = req.user.user_id;
         let userRegionId = req.user.region_id;
 
         if (req.user.role !== 'SUPER_ADMIN') {
@@ -181,9 +182,39 @@ exports.getRecords = async (req, res) => {
                 params.push(assignedOfficeIds, assignedOfficeIds, assignedOfficeIds);
                 console.log(`[getRecords] STAFF ${currentUserId} access expanded to assigned + sub + parent offices`);
             } else {
-                // No sub-office assignments = province-level access only
-                console.log(`[getRecords] STAFF ${currentUserId} has no office assignments, allowing province-level records`);
-                baseConditions += ` AND r.office_id IS NULL`;
+                // FALLBACK: Check if user has a string-based office assignment in `users` table
+                // This supports legacy/simple assignments where `office` column contains the Code or Name
+                const userOfficeRes = await pool.query("SELECT office FROM users WHERE user_id = $1", [currentUserId]);
+                const officeString = userOfficeRes.rows[0]?.office;
+
+                if (officeString) {
+                    // Try to find an office matching this string (Code or Name)
+                    const officeMatch = await pool.query(
+                        "SELECT office_id FROM offices WHERE (code ILIKE $1 OR name ILIKE $1) AND region_id = $2",
+                        [officeString, userRegionId]
+                    );
+
+                    if (officeMatch.rows.length > 0) {
+                        const matchedOfficeId = officeMatch.rows[0].office_id;
+                        // Apply similar expansion logic for this single matched office
+                        baseConditions += ` AND (
+                            r.office_id = $${counter++}
+                            OR r.office_id IN (SELECT office_id FROM offices WHERE parent_id = $${counter++})
+                            OR r.office_id IN (SELECT parent_id FROM offices WHERE office_id = $${counter++})
+                            OR r.office_id IS NULL
+                        )`;
+                        params.push(matchedOfficeId, matchedOfficeId, matchedOfficeId);
+                        console.log(`[getRecords] STAFF ${currentUserId} fallback to string-based office: ${officeString} -> ID ${matchedOfficeId}`);
+                    } else {
+                        // No match found -> Province level only
+                        console.log(`[getRecords] STAFF ${currentUserId} string office '${officeString}' not found in DB. Defaulting to province level.`);
+                        baseConditions += ` AND r.office_id IS NULL`;
+                    }
+                } else {
+                    // No sub-office assignments & no string assignment = province-level access only
+                    console.log(`[getRecords] STAFF ${currentUserId} has no office assignments, allowing province-level records`);
+                    baseConditions += ` AND r.office_id IS NULL`;
+                }
             }
         } else {
             // Other roles: restrict to their assigned region
@@ -294,13 +325,12 @@ exports.getShelves = async (req, res) => {
         const { region_id, office_id, category, restricted_only } = req.query;
 
         // DEBUG: Log the restricted_only value
-        console.log('--- [getShelves] REQUEST ---');
-        console.log('Region:', region_id);
-        console.log('Office:', office_id);
-        console.log('Category:', category);
-        console.log('RestrictedOnly:', restricted_only);
-        // DEBUG: Log the restricted_only value
-        console.log('[getShelves] restricted_only:', restricted_only, 'Type:', typeof restricted_only);
+        // console.log('--- [getShelves] REQUEST ---');
+        // console.log('Region:', region_id);
+        // console.log('Office:', office_id);
+        // console.log('Category:', category);
+        // console.log('RestrictedOnly:', restricted_only);
+        // console.log('[getShelves] restricted_only:', restricted_only, 'Type:', typeof restricted_only);
 
         if (!region_id || !category) {
             const missing = [];
@@ -315,10 +345,10 @@ exports.getShelves = async (req, res) => {
         const cleanOffice = parseId(office_id);
 
         // DEBUG: JSON.stringify to see hidden chars
-        console.log('--- [getShelves] SANITIZED ---');
-        console.log('Region:', cleanRegion);
-        console.log('Office:', cleanOffice);
-        console.log('Category:', JSON.stringify(cleanCategory));
+        // console.log('--- [getShelves] SANITIZED ---');
+        // console.log('Region:', cleanRegion);
+        // console.log('Office:', cleanOffice);
+        // console.log('Category:', JSON.stringify(cleanCategory));
 
         const params = [cleanRegion];
         let query = `
@@ -346,7 +376,7 @@ exports.getShelves = async (req, res) => {
 
         // STAFF SUB-OFFICE ACCESS CONTROL
         if (req.user && req.user.role === 'STAFF') {
-            const currentUserId = req.user.id || req.user.user_id;
+            const currentUserId = req.user.user_id;
             const assignmentResult = await pool.query(
                 `SELECT office_id AS assigned_office_id 
                  FROM user_office_assignments 
@@ -365,9 +395,39 @@ exports.getShelves = async (req, res) => {
                 )`;
                 params.push(assignedOfficeIds, assignedOfficeIds, assignedOfficeIds);
             } else {
-                // If no office assigned, they can ONLY see Province Level shelves
-                console.log(`[getShelves] STAFF ${currentUserId} has no office assignments, allowing province-level shelves`);
-                query += ` AND (office_id IS NULL OR office_id = 0)`;
+                // FALLBACK: Check if user has a string-based office assignment in `users` table
+                const userOfficeRes = await pool.query("SELECT office, region_id FROM users WHERE user_id = $1", [currentUserId]);
+                const officeString = userOfficeRes.rows[0]?.office;
+                const uRegion = userOfficeRes.rows[0]?.region_id;
+
+                if (officeString) {
+                    // Try to find an office matching this string (Code or Name)
+                    const officeMatch = await pool.query(
+                        "SELECT office_id FROM offices WHERE (code ILIKE $1 OR name ILIKE $1) AND region_id = $2",
+                        [officeString, uRegion]
+                    );
+
+                    if (officeMatch.rows.length > 0) {
+                        const matchedOfficeId = officeMatch.rows[0].office_id;
+                        // Apply similar expansion logic for this single matched office
+                        query += ` AND (
+                            office_id = $${counter++}
+                            OR office_id IN (SELECT office_id FROM offices WHERE parent_id = $${counter++})
+                            OR office_id IN (SELECT parent_id FROM offices WHERE office_id = $${counter++})
+                            OR office_id IS NULL OR office_id = 0
+                        )`;
+                        params.push(matchedOfficeId, matchedOfficeId, matchedOfficeId);
+                        console.log(`[getShelves] STAFF ${currentUserId} fallback to string-based office: ${officeString} -> ID ${matchedOfficeId}`);
+                    } else {
+                        // No match found -> Province level only
+                        console.log(`[getShelves] STAFF ${currentUserId} string office '${officeString}' not found in DB. Defaulting to province level.`);
+                        query += ` AND (office_id IS NULL OR office_id = 0)`;
+                    }
+                } else {
+                    // If no office assigned, they can ONLY see Province Level shelves
+                    console.log(`[getShelves] STAFF ${currentUserId} has no office assignments, allowing province-level shelves`);
+                    query += ` AND (office_id IS NULL OR office_id = 0)`;
+                }
             }
         }
 
@@ -387,34 +447,7 @@ exports.getShelves = async (req, res) => {
 
         // --- DEEP DEBUG IF EMPTY ---
         if (shelves.length === 0) {
-            console.log('--- QUERY RETURNED 0. RUNNING DIAGNOSTICS ---');
-            const debugLog = [];
-
-            // 1. Check without Category
-            const resNoCat = await pool.query(`SELECT count(*) FROM records WHERE region_id = $1 AND (office_id = $2 OR office_id IN (SELECT office_id FROM offices WHERE parent_id = $2)) AND status = 'Active' AND is_restricted = $3`, [cleanRegion, cleanOffice, restricted_only === 'true']);
-            debugLog.push(`IgnoreCategory: Found ${resNoCat.rows[0].count}`);
-
-            // 2. Check without Office (Global in Region + Category)
-            const resNoOffice = await pool.query("SELECT count(*) FROM records WHERE region_id = $1 AND category = $2 AND status = 'Active' AND is_restricted = $3", [cleanRegion, cleanCategory, restricted_only === 'true']);
-            debugLog.push(`IgnoreOffice: Found ${resNoOffice.rows[0].count}`);
-
-            // 3. Check EXACT Category match (binary)
-            const resCatCheck = await pool.query("SELECT category FROM records WHERE region_id = $1 AND is_restricted = $2 LIMIT 1", [cleanRegion, restricted_only === 'true']);
-            if (resCatCheck.rows.length > 0) {
-                const dbCat = resCatCheck.rows[0].category;
-                debugLog.push(`DBCat Sample: "${dbCat}" vs Input: "${cleanCategory}" (Equal? ${dbCat === cleanCategory})`);
-            }
-
-            console.log(debugLog);
-            // Attach to array (Hack but works for axios)
-            // shelves.debug_info = debugLog.join(' | '); 
-            // Better: Send a header? No, just log it here and rely on server logs for ME. 
-            // Wait, for the USER to see it, I need to send it.
-            // I will wrap response if empty? No breaks validation.
-            // I will append a dummy shelf with the error if dev mode?
-
-            // Let's attach as header
-            res.set('X-Debug-Trace', JSON.stringify(debugLog));
+            // Debug block removed for production performance
         }
 
         res.json(shelves);
@@ -490,10 +523,11 @@ exports.deleteRecord = async (req, res) => {
         }
 
         // Delete the physical file if it exists
-        if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+        try {
+            await fsPromises.access(filePath);
+            await fsPromises.unlink(filePath);
             console.log(`[DELETE] Physical file deleted: ${filePath}`);
-        } else {
+        } catch (e) {
             console.log(`[DELETE] File not found on disk: ${filePath}`);
         }
 
