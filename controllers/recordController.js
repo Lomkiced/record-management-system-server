@@ -43,7 +43,15 @@ const parseId = (id) => (id === undefined || id === null || id === '') ? null : 
 // --- 1. UPLOAD RECORD (Enhanced with office_id and master password) ---
 exports.createRecord = async (req, res) => {
     try {
-        const { title, region_id, office_id, category_name, classification_rule, shelf, retention_period, is_restricted, period_covered, volume, duplication, time_value, utility_value } = req.body;
+        const {
+            title, region_id, office_id, category_name, classification_rule, shelf, retention_period,
+            is_restricted, period_covered, volume, duplication, time_value, utility_value,
+            media_text, restriction_text, frequency_text, provision_text
+        } = req.body;
+
+        console.log('[createRecord] Body:', JSON.stringify(req.body, null, 2)); // DEBUG LOG
+        console.log('[createRecord] File:', req.file ? req.file.originalname : 'No File'); // DEBUG LOG
+
 
         // 🔒 IDENTITY RECOVERY: Handle both 'id' and 'user_id' token formats
         const uploaderId = req.user.id || req.user.user_id;
@@ -69,16 +77,17 @@ exports.createRecord = async (req, res) => {
         const disposalDate = calculateDisposalDate(retention_period);
 
         const sql = `
-            INSERT INTO records 
-            (title, region_id, office_id, category, classification_rule, shelf, retention_period, disposal_date, file_path, file_size, file_type, status, uploaded_by, is_restricted, file_password, period_covered, volume, duplication, time_value, utility_value) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+    INSERT INTO records 
+    (title, region_id, office_id, category, classification_rule, shelf, retention_period, disposal_date, file_path, file_size, file_type, status, uploaded_by, is_restricted, file_password, period_covered, volume, duplication, time_value, utility_value, media_text, restriction_text, frequency_text, provision_text) 
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
             RETURNING record_id
         `;
 
         const values = [
             title, targetRegion, parseId(office_id), category_name, classification_rule, shelf || null, retention_period,
             disposalDate, req.file.filename, req.file.size, req.file.mimetype,
-            'Active', uploaderId, restricted, null, period_covered, volume, duplication, time_value, utility_value
+            'Active', uploaderId, restricted, null, period_covered, volume, duplication, time_value, utility_value,
+            media_text, restriction_text, frequency_text, provision_text
         ];
 
         // --- SECURITY: Move to Restricted Folder if needed ---
@@ -158,14 +167,23 @@ exports.getRecords = async (req, res) => {
 
             if (assignmentResult.rows.length > 0) {
                 const assignedOfficeIds = assignmentResult.rows.map(row => row.assigned_office_id);
-                // Staff can see records from their assigned sub-offices
-                baseConditions += ` AND r.office_id = ANY($${counter++}::int[])`;
-                params.push(assignedOfficeIds);
-                console.log(`[getRecords] STAFF ${currentUserId} can access offices:`, assignedOfficeIds);
+                // Staff can see records from:
+                // 1. Their directly assigned offices
+                // 2. Sub-offices of their assigned offices (if they are assigned to a parent)
+                // 3. Parent offices of their assigned offices (if they are assigned to a sub)
+                // 4. Province-level records (office_id IS NULL)
+                baseConditions += ` AND (
+                    r.office_id = ANY($${counter++}::int[]) 
+                    OR r.office_id IN (SELECT office_id FROM offices WHERE parent_id = ANY($${counter++}::int[]))
+                    OR r.office_id IN (SELECT parent_id FROM offices WHERE office_id = ANY($${counter++}::int[]))
+                    OR r.office_id IS NULL
+                )`;
+                params.push(assignedOfficeIds, assignedOfficeIds, assignedOfficeIds);
+                console.log(`[getRecords] STAFF ${currentUserId} access expanded to assigned + sub + parent offices`);
             } else {
-                // No sub-office assignments = no access to any records
-                console.log(`[getRecords] STAFF ${currentUserId} has no office assignments, restricting all`);
-                baseConditions += ` AND 1=0`; // Always false, returns nothing
+                // No sub-office assignments = province-level access only
+                console.log(`[getRecords] STAFF ${currentUserId} has no office assignments, allowing province-level records`);
+                baseConditions += ` AND r.office_id IS NULL`;
             }
         } else {
             // Other roles: restrict to their assigned region
@@ -236,21 +254,22 @@ exports.getRecords = async (req, res) => {
 
         // Get paginated data with office info
         let query = `
-            SELECT r.record_id, r.title, r.region_id, r.office_id, r.category, r.classification_rule, r.shelf, 
-                   r.retention_period, r.disposal_date, r.file_path, r.file_size, r.file_type, 
-                   r.status, r.uploaded_at, r.is_restricted,
-                   r.period_covered, r.volume, r.duplication, r.time_value, r.utility_value, 
-                   r.updated_at, r.archived_at,
-                   reg.name as region_name, u.username as uploader_name,
-                   o.name as office_name, o.code as office_code
-            FROM records r
-            LEFT JOIN regions reg ON r.region_id = reg.id
-            LEFT JOIN offices o ON r.office_id = o.office_id
-            LEFT JOIN users u ON r.uploaded_by = u.user_id
-            ${baseConditions}
-            ORDER BY r.uploaded_at DESC 
-            LIMIT $${counter++} OFFSET $${counter++}
-        `;
+    SELECT r.record_id, r.title, r.region_id, r.office_id, r.category, r.classification_rule, r.shelf, 
+           r.retention_period, r.disposal_date, r.file_path, r.file_size, r.file_type, 
+           r.status, r.uploaded_at, r.is_restricted,
+           r.period_covered, r.volume, r.duplication, r.time_value, r.utility_value, 
+           r.media_text, r.restriction_text, r.frequency_text, r.provision_text,
+           r.updated_at, r.archived_at,
+           reg.name as region_name, u.username as uploader_name,
+           o.name as office_name, o.code as office_code
+    FROM records r
+    LEFT JOIN regions reg ON r.region_id = reg.id
+    LEFT JOIN offices o ON r.office_id = o.office_id
+    LEFT JOIN users u ON r.uploaded_by = u.user_id
+    ${baseConditions}
+    ORDER BY r.uploaded_at DESC 
+    LIMIT $${counter++} OFFSET $${counter++}
+`;
         params.push(limit, offset);
 
         const { rows } = await pool.query(query, params);
@@ -337,11 +356,17 @@ exports.getShelves = async (req, res) => {
 
             if (assignmentResult.rows.length > 0) {
                 const assignedOfficeIds = assignmentResult.rows.map(row => row.assigned_office_id);
-                // Allow access to Assigned Offices OR Province Level (NULL or 0)
-                query += ` AND (office_id = ANY($${counter++}::int[]) OR office_id IS NULL OR office_id = 0)`;
-                params.push(assignedOfficeIds);
+                // Allow access to Assigned Offices OR Sub-Offices OR Parent Offices OR Province Level (NULL or 0)
+                query += ` AND (
+                    office_id = ANY($${counter++}::int[]) 
+                    OR office_id IN (SELECT office_id FROM offices WHERE parent_id = ANY($${counter++}::int[]))
+                    OR office_id IN (SELECT parent_id FROM offices WHERE office_id = ANY($${counter++}::int[]))
+                    OR office_id IS NULL OR office_id = 0
+                )`;
+                params.push(assignedOfficeIds, assignedOfficeIds, assignedOfficeIds);
             } else {
-                // If no office assigned, they can ONLY see Province Level
+                // If no office assigned, they can ONLY see Province Level shelves
+                console.log(`[getShelves] STAFF ${currentUserId} has no office assignments, allowing province-level shelves`);
                 query += ` AND (office_id IS NULL OR office_id = 0)`;
             }
         }
@@ -488,11 +513,18 @@ exports.deleteRecord = async (req, res) => {
 exports.updateRecord = async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, region_id, category_name, classification_rule, shelf, retention_period, period_covered, volume, duplication, time_value, utility_value } = req.body;
+        const {
+            title, region_id, category_name, classification_rule, shelf, retention_period,
+            period_covered, volume, duplication, time_value, utility_value,
+            media_text, restriction_text, frequency_text, provision_text
+        } = req.body;
+
+        console.log('[updateRecord] Body:', JSON.stringify(req.body, null, 2));
+
         const disposalDate = calculateDisposalDate(retention_period);
         await pool.query(
-            "UPDATE records SET title = $1, region_id = $2, category = $3, classification_rule = $4, shelf = $5, retention_period = $6, disposal_date = $7, period_covered = $8, volume = $9, duplication = $10, time_value = $11, utility_value = $12 WHERE record_id = $13",
-            [title, parseId(region_id), category_name, classification_rule, shelf || null, retention_period, disposalDate, period_covered, volume, duplication, time_value, utility_value, id]
+            "UPDATE records SET title = $1, region_id = $2, category = $3, classification_rule = $4, shelf = $5, retention_period = $6, disposal_date = $7, period_covered = $8, volume = $9, duplication = $10, time_value = $11, utility_value = $12, media_text = $13, restriction_text = $14, frequency_text = $15, provision_text = $16 WHERE record_id = $17",
+            [title, parseId(region_id), category_name, classification_rule, shelf || null, retention_period, disposalDate, period_covered, volume, duplication, time_value, utility_value, media_text, restriction_text, frequency_text, provision_text, id]
         );
         await logAudit(req, 'UPDATE_RECORD', `Updated "${title}"`);
         res.json({ message: "Updated" });

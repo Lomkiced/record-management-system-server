@@ -22,14 +22,37 @@ exports.getDashboardStats = async (req, res) => {
             disposalFilter = " WHERE region_id = $1";
             disposalParams = [region_id];
         } else if (role === 'STAFF') {
-            // METRICS: Personal (My Uploads)
-            metricsFilter = " WHERE uploaded_by = $1";
-            metricsParams = [user_id];
+            // METRICS & DISPOSAL: Fetch assigned offices from database (more reliable than JWT)
+            const officeAssignments = await pool.query(
+                `SELECT office_id FROM user_office_assignments WHERE user_id = $1`,
+                [user_id]
+            );
+            const assigned_office_ids = officeAssignments.rows.map(r => r.office_id);
 
-            // DISPOSAL: Regional (Team View - so they can act on office records)
-            disposalFilter = " WHERE region_id = $1";
-            disposalParams = [region_id];
+            console.log(`[DASHBOARD STAFF] User ${user_id} assigned offices:`, assigned_office_ids);
+
+            if (assigned_office_ids.length > 0) {
+                // METRICS: Filter by assigned offices
+                metricsFilter = ` WHERE office_id = ANY($1::int[])`;
+                metricsParams = [assigned_office_ids];
+
+                // DISPOSAL: Filter by province AND assigned offices
+                // Staff should only see disposal items for their province + assigned offices
+                disposalFilter = " WHERE region_id = $1 AND office_id = ANY($2::int[])";
+                disposalParams = [region_id, assigned_office_ids];
+            } else {
+                // Fallback to region-based filtering if no specific offices assigned
+                metricsFilter = " WHERE region_id = $1";
+                metricsParams = [region_id];
+
+                // DISPOSAL: Fallback to province-only filter
+                disposalFilter = " WHERE region_id = $1";
+                disposalParams = [region_id];
+            }
         }
+
+
+
 
         // 2. FETCH DATA
         const [recordStats, storageStats, disposalQueue, recentLogs] = await Promise.all([

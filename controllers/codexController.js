@@ -18,9 +18,9 @@ exports.getCategories = async (req, res) => {
         if (req.user.role !== 'SUPER_ADMIN') {
             // Logic: Show 'Global' items OR items matching the user's region name
             const regionName = await getUserRegionName(req.user.region_id);
-            
+
             query += " WHERE region = 'Global'";
-            
+
             if (regionName) {
                 query += " OR region = $1";
                 params.push(regionName);
@@ -45,9 +45,9 @@ exports.getTypes = async (req, res) => {
 
         if (req.user.role !== 'SUPER_ADMIN') {
             const regionName = await getUserRegionName(req.user.region_id);
-            
+
             query += " WHERE region = 'Global'";
-            
+
             if (regionName) {
                 query += " OR region = $1";
                 params.push(regionName);
@@ -66,19 +66,19 @@ exports.getTypes = async (req, res) => {
 
 exports.addCategory = async (req, res) => {
     try {
-        const { name, region } = req.body;
-        
+        const { name, region, color } = req.body;
+
         // Security: Regional Admins can only create for their own region
         if (req.user.role === 'REGIONAL_ADMIN') {
-             const userRegionName = await getUserRegionName(req.user.region_id);
-             if (region !== userRegionName) {
-                 return res.status(403).json({ message: "You can only create folders for your assigned region." });
-             }
+            const userRegionName = await getUserRegionName(req.user.region_id);
+            if (region !== userRegionName) {
+                return res.status(403).json({ message: "You can only create folders for your assigned region." });
+            }
         }
 
         const { rows } = await pool.query(
-            "INSERT INTO codex_categories (name, region) VALUES ($1, $2) RETURNING *",
-            [name, region]
+            "INSERT INTO codex_categories (name, region, color) VALUES ($1, $2, $3) RETURNING *",
+            [name, region, color || 'amber'] // Default to amber if no color provided
         );
         res.json(rows[0]);
     } catch (err) {
@@ -90,13 +90,13 @@ exports.addCategory = async (req, res) => {
 exports.addType = async (req, res) => {
     try {
         const { category_id, type_name, retention_period, region } = req.body;
-        
+
         // Security Check
         if (req.user.role === 'REGIONAL_ADMIN') {
-             const userRegionName = await getUserRegionName(req.user.region_id);
-             if (region !== 'Global' && region !== userRegionName) {
-                 return res.status(403).json({ message: "Unauthorized region assignment." });
-             }
+            const userRegionName = await getUserRegionName(req.user.region_id);
+            if (region !== 'Global' && region !== userRegionName) {
+                return res.status(403).json({ message: "Unauthorized region assignment." });
+            }
         }
 
         const { rows } = await pool.query(
@@ -113,7 +113,7 @@ exports.addType = async (req, res) => {
 exports.deleteCategory = async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         // Optional: Add logic to prevent Regional Admin from deleting Global folders
         if (req.user.role !== 'SUPER_ADMIN') {
             const { rows } = await pool.query("SELECT region FROM codex_categories WHERE category_id = $1", [id]);
@@ -133,7 +133,7 @@ exports.deleteCategory = async (req, res) => {
 exports.deleteType = async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         if (req.user.role !== 'SUPER_ADMIN') {
             const { rows } = await pool.query("SELECT region FROM codex_types WHERE type_id = $1", [id]);
             if (rows.length > 0 && rows[0].region === 'Global') {

@@ -37,9 +37,11 @@ exports.getOffices = async (req, res) => {
             }
         }
 
-        // Security: Non-Super Admins only see their region's offices
-        if (req.user.role !== 'SUPER_ADMIN' && req.user.region_id) {
-            // Ensure the region matches (already filtered by region_id if passed, but double check)
+        // Security: Apply region restriction only for non-admin users querying without parent_office_id
+        // When querying by parent_office_id, sub-offices inherit region from parent - no extra filter needed
+        // Admin roles (SUPER_ADMIN, ADMIN, REGIONAL_ADMIN) are exempt from strict region filtering
+        const isAdminRole = ['SUPER_ADMIN', 'ADMIN', 'REGIONAL_ADMIN'].includes(req.user.role);
+        if (!isAdminRole && req.user.region_id && !parent_office_id) {
             if (!region_id) {
                 params.push(req.user.region_id);
                 baseConditions += ` AND o.region_id = $${params.length}`;
