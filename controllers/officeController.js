@@ -55,7 +55,21 @@ exports.getOffices = async (req, res) => {
 
         // 2. Get Paginated Data
         let query = `
-            SELECT o.*, r.name as region_name, p.name as parent_office_name
+            SELECT o.*, r.name as region_name, p.name as parent_office_name,
+            (
+                SELECT COUNT(*) 
+                FROM records rec 
+                WHERE rec.status = 'Active' 
+                AND rec.is_restricted = false
+                AND (rec.office_id = o.office_id OR rec.office_id IN (SELECT sub.office_id FROM offices sub WHERE sub.parent_id = o.office_id))
+            )::integer as record_count,
+            (
+                SELECT COUNT(*) 
+                FROM records rec 
+                WHERE rec.status = 'Active' 
+                AND rec.is_restricted = true
+                AND (rec.office_id = o.office_id OR rec.office_id IN (SELECT sub.office_id FROM offices sub WHERE sub.parent_id = o.office_id))
+            )::integer as restricted_record_count
             FROM offices o 
             LEFT JOIN regions r ON o.region_id = r.id 
             LEFT JOIN offices p ON o.parent_id = p.office_id
@@ -66,6 +80,15 @@ exports.getOffices = async (req, res) => {
 
         const dataParams = [...params, limit, offset];
         const { rows } = await pool.query(query, dataParams);
+
+        if (rows.length > 0) {
+            console.log('[getOffices] Returning Data Sample:', {
+                id: rows[0].office_id,
+                name: rows[0].name,
+                record_count: rows[0].record_count,
+                restricted_record_count: rows[0].restricted_record_count
+            });
+        }
 
         res.json({
             data: rows,
@@ -86,7 +109,21 @@ exports.getOfficeById = async (req, res) => {
     try {
         const { id } = req.params;
         const { rows } = await pool.query(
-            `SELECT o.*, r.name as region_name, p.name as parent_office_name
+            `SELECT o.*, r.name as region_name, p.name as parent_office_name,
+             (
+                SELECT COUNT(*) 
+                FROM records rec 
+                WHERE rec.status = 'Active' 
+                AND rec.is_restricted = false
+                AND (rec.office_id = o.office_id OR rec.office_id IN (SELECT sub.office_id FROM offices sub WHERE sub.parent_id = o.office_id))
+             )::integer as record_count,
+             (
+                SELECT COUNT(*) 
+                FROM records rec 
+                WHERE rec.status = 'Active' 
+                AND rec.is_restricted = true
+                AND (rec.office_id = o.office_id OR rec.office_id IN (SELECT sub.office_id FROM offices sub WHERE sub.parent_id = o.office_id))
+             )::integer as restricted_record_count
              FROM offices o 
              LEFT JOIN regions r ON o.region_id = r.id 
              LEFT JOIN offices p ON o.parent_id = p.office_id

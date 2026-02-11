@@ -8,6 +8,7 @@ exports.getRegions = async (req, res) => {
                 r.*,
                 COALESCE(o.office_count, 0)::integer as office_count,
                 COALESCE(rec.record_count, 0)::integer as record_count,
+                COALESCE(rec.restricted_record_count, 0)::integer as restricted_record_count,
                 COALESCE(rec.total_storage, 0)::bigint as total_storage,
                 COALESCE(u.user_count, 0)::integer as user_count
             FROM regions r
@@ -17,7 +18,11 @@ exports.getRegions = async (req, res) => {
                 GROUP BY region_id
             ) o ON r.id = o.region_id
             LEFT JOIN (
-                SELECT region_id::integer, COUNT(*) as record_count, SUM(file_size) as total_storage
+                SELECT 
+                    region_id::integer, 
+                    COUNT(*) FILTER (WHERE is_restricted = false) as record_count,
+                    COUNT(*) FILTER (WHERE is_restricted = true) as restricted_record_count,
+                    SUM(file_size) as total_storage
                 FROM records WHERE status = 'Active' 
                 GROUP BY region_id
             ) rec ON r.id = rec.region_id
